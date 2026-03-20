@@ -1,3 +1,5 @@
+![截屏2026-03-20 14.17.22](./docs/img/截屏2026-03-20 14.17.22.png)
+
 # Phone Control
 
 多设备 Android 群控桌面应用，支持实时截屏预览、批量操作、scrcpy 投屏。基于 **Tauri 2 + React + TypeScript** 构建。
