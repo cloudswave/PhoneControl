@@ -1,0 +1,86 @@
+.wrap {
+  padding: 0 12px 16px;
+}
+.title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 10px;
+}
+.addRow {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.input {
+  flex: 1;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 5px 8px;
+}
+.portInput {
+  width: 56px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 5px 6px;
+}
+.addBtn {
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  width: 28px;
+  font-size: 18px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.addBtn:hover { background: var(--accent-hover); }
+.error {
+  font-size: 12px;
+  color: var(--danger);
+  margin-bottom: 6px;
+}
+.list { display: flex; flex-direction: column; gap: 4px; }
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+.dotOn  { background: var(--status-online); }
+.dotOff { background: var(--status-offline); }
+.addr {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.removeBtn {
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+  transition: color 0.15s;
+}
+.removeBtn:hover { color: var(--danger); }

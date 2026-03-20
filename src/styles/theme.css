@@ -1,0 +1,20 @@
+:root {
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #242424;
+  --bg-card: #2a2a2a;
+  --border: #3a3a3a;
+  --text-primary: #e8e8e8;
+  --text-secondary: #999;
+  --accent: #4a9eff;
+  --accent-hover: #6aafff;
+  --status-online: #4caf50;
+  --status-offline: #666;
+  --status-unauthorized: #ff9800;
+  --danger: #f44336;
+  --card-width: 200px;
+  --card-height: 356px;
+  --sidebar-width: 280px;
+  --toolbar-height: 52px;
+  --radius: 8px;
+  --radius-sm: 4px;
+}

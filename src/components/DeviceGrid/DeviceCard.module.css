@@ -1,0 +1,106 @@
+.card {
+  width: var(--card-width);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.card:hover {
+  border-color: #555;
+}
+.cardSelected {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 1px rgba(74, 158, 255, 0.3);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  background: var(--bg-secondary);
+}
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status_online    { background: var(--status-online); }
+.status_offline   { background: var(--status-offline); }
+.status_unauthorized { background: var(--status-unauthorized); }
+.status_connecting { background: var(--accent); }
+.name {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.battery {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.screen {
+  flex: 1;
+  height: var(--card-height);
+  background: #111;
+  position: relative;
+  overflow: hidden;
+  cursor: default;
+}
+.screenActive {
+  cursor: crosshair;
+}
+.img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  padding: 5px 10px;
+  background: var(--bg-secondary);
+  gap: 6px;
+}
+.serial {
+  flex: 1;
+  font-size: 10px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scrcpyBtn {
+  background: rgba(74, 158, 255, 0.15);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(74, 158, 255, 0.3);
+  letter-spacing: 0.02em;
+  transition: background 0.15s, border-color 0.15s;
+}
+.scrcpyBtn:hover {
+  background: rgba(74, 158, 255, 0.3);
+  border-color: var(--accent);
+}
