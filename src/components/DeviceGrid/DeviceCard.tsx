@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { useStore } from '../../store';
 import { useAdbCommands } from '../../hooks/useAdbCommands';
 import type { Device } from '../../types';
@@ -12,9 +12,11 @@ interface Props {
 
 function DeviceCardInner({ device, screenshot, selected }: Props) {
   const toggleSelect = useStore((s) => s.toggleSelect);
+  const toggleDisableDevice = useStore((s) => s.toggleDisableDevice);
   const fps = useStore((s) => s.fps);
   const cmds = useAdbCommands();
   const imgRef = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
 
   const isOnline = device.status === 'online';
 
@@ -72,6 +74,18 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
     [isOnline, selected, cmds]
   );
 
+  // Copy device ID to clipboard
+  const handleCopySerial = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(device.serial);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  }, [device.serial]);
+
   const statusClass = styles[`status_${device.status}`] ?? styles.status_offline;
 
   return (
@@ -104,16 +118,32 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
 
       {/* Footer */}
       <div className={styles.footer}>
-        <span className={styles.serial}>{device.serial}</span>
-        {isOnline && (
+        <span
+          className={styles.serial}
+          onClick={handleCopySerial}
+          title={copied ? 'Copied!' : 'Click to copy'}
+          style={{ cursor: 'pointer' }}
+        >
+          {copied ? '✓ Copied' : device.serial}
+        </span>
+        <div className={styles.footerActions}>
           <button
-            className={styles.scrcpyBtn}
-            onClick={(e) => { e.stopPropagation(); cmds.launchScrcpy(device.serial, device.server_host, device.server_port); }}
-            title="Open in scrcpy"
+            className={styles.disableBtn}
+            onClick={(e) => { e.stopPropagation(); toggleDisableDevice(device.serial); }}
+            title="Disable device"
           >
-            ▶ scrcpy
+            ✕
           </button>
-        )}
+          {isOnline && (
+            <button
+              className={styles.scrcpyBtn}
+              onClick={(e) => { e.stopPropagation(); cmds.launchScrcpy(device.serial, device.server_host, device.server_port); }}
+              title="Open in scrcpy"
+            >
+              ▶
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

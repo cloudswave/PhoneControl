@@ -6,6 +6,7 @@ import styles from './DeviceGrid.module.css';
 
 export function DeviceGrid() {
   const devices = useStore((s) => s.devices);
+  const disabledSerials = useStore((s) => s.disabledSerials);
   const selectedSerials = useStore((s) => s.selectedSerials);
   const screenshots = useStore((s) => s.screenshots);
   const page = useStore((s) => s.page);
@@ -15,8 +16,9 @@ export function DeviceGrid() {
 
   const setPageSize = useStore((s) => s.setPageSize);
 
-  const totalPages = Math.max(1, Math.ceil(devices.length / pageSize));
-  const pageDevices = devices.slice(page * pageSize, (page + 1) * pageSize);
+  const enabledDevices = devices.filter((d) => !disabledSerials.has(d.serial));
+  const totalPages = Math.max(1, Math.ceil(enabledDevices.length / pageSize));
+  const pageDevices = enabledDevices.slice(page * pageSize, (page + 1) * pageSize);
 
   // Track previous page serials to start/stop previews on page change
   const prevSerialsRef = useRef<Set<string>>(new Set());
@@ -80,7 +82,7 @@ export function DeviceGrid() {
               value={pageSize}
               onChange={(e) => setPageSize(Number(e.target.value))}
             >
-              {[6, 8, 10, 12, 16, 20, 24].map((n) => (
+              {[6, 8, 10, 12, 14, 16, 20, 24].map((n) => (
                 <option key={n} value={n}>{n}</option>
               ))}
             </select>

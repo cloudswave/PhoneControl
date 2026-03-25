@@ -13,7 +13,9 @@ const STATUS_LABEL: Record<string, string> = {
 export function DeviceList() {
   const devices = useStore((s) => s.devices);
   const selectedSerials = useStore((s) => s.selectedSerials);
+  const disabledSerials = useStore((s) => s.disabledSerials);
   const toggleSelect = useStore((s) => s.toggleSelect);
+  const toggleDisableDevice = useStore((s) => s.toggleDisableDevice);
   const selectAll = useStore((s) => s.selectAll);
   const clearSelection = useStore((s) => s.clearSelection);
   const [filter, setFilter] = useState('');
@@ -96,17 +98,22 @@ export function DeviceList() {
           filtered.map((d) => (
             <div
               key={d.serial}
-              className={`${styles.item} ${selectedSerials.has(d.serial) ? styles.selected : ''}`}
-              onClick={() => d.status === 'online' && toggleSelect(d.serial)}
+              className={`${styles.item} ${selectedSerials.has(d.serial) ? styles.selected : ''} ${disabledSerials.has(d.serial) ? styles.disabled : ''}`}
+              onClick={() => d.status === 'online' && !disabledSerials.has(d.serial) && toggleSelect(d.serial)}
             >
-              <div className={`${styles.statusDot} ${styles[`status_${d.status}`]}`} />
+              <div
+                className={`${styles.statusDot} ${styles[`status_${d.status}`]}`}
+                onClick={(e) => { e.stopPropagation(); toggleDisableDevice(d.serial); }}
+                title={disabledSerials.has(d.serial) ? 'Click to enable' : 'Click to disable'}
+                style={{ cursor: 'pointer' }}
+              />
               <div className={styles.info}>
                 <div className={styles.name}>{d.serial}</div>
                 <div className={styles.meta}>
-                  {STATUS_LABEL[d.status]}
+                  {disabledSerials.has(d.serial) ? 'Disabled' : STATUS_LABEL[d.status]}
                 </div>
               </div>
-              {d.status === 'online' && (
+              {d.status === 'online' && !disabledSerials.has(d.serial) && (
                 <button
                   className={styles.scrcpyBtn}
                   title="Open in scrcpy"

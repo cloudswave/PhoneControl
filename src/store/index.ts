@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { AdbServer, Device } from '../types';
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 14;
 
 interface AppStore {
   // Servers
@@ -11,6 +11,10 @@ interface AppStore {
   // Devices
   devices: Device[];
   setDevices: (devices: Device[]) => void;
+
+  // Disabled devices
+  disabledSerials: Set<string>;
+  toggleDisableDevice: (serial: string) => void;
 
   // Selection
   selectedSerials: Set<string>;
@@ -42,6 +46,15 @@ export const useStore = create<AppStore>((set) => ({
     const totalPages = Math.max(1, Math.ceil(devices.length / s.pageSize));
     return { devices, page: Math.min(s.page, totalPages - 1) };
   }),
+
+  disabledSerials: new Set(),
+  toggleDisableDevice: (serial) =>
+    set((s) => {
+      const next = new Set(s.disabledSerials);
+      if (next.has(serial)) next.delete(serial);
+      else next.add(serial);
+      return { disabledSerials: next };
+    }),
 
   selectedSerials: new Set(),
   toggleSelect: (serial) =>

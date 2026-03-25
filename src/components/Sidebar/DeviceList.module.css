@@ -76,6 +76,13 @@
   background: rgba(74, 158, 255, 0.1) !important;
   border-color: rgba(74, 158, 255, 0.3) !important;
 }
+.disabled {
+  opacity: 0.5;
+  cursor: not-allowed !important;
+}
+.disabled:hover {
+  background: transparent !important;
+}
 .statusDot {
   width: 8px;
   height: 8px;
