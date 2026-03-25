@@ -16,7 +16,11 @@ export default function App() {
   useScreenshot();
 
   useEffect(() => {
-    invoke<AdbServer[]>('load_config').then(setServers).catch(() => {});
+    invoke<AdbServer[]>('load_config').then((servers) => {
+      setServers(servers);
+      // 加载配置后立即刷新设备列表
+      invoke('refresh_devices').catch(() => {});
+    }).catch(() => {});
   }, [setServers]);
 
   return (

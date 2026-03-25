@@ -32,6 +32,8 @@ export function ServerList() {
   async function toggleServer(id: string, enabled: boolean) {
     await invoke('toggle_server', { id, enabled });
     setServers(servers.map((s) => (s.id === id ? { ...s, enabled } : s)));
+    // 切换 server 状态后自动刷新设备列表
+    invoke('refresh_devices').catch(() => {});
   }
 
   return (

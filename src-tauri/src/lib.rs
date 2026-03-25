@@ -170,6 +170,15 @@ async fn launch_scrcpy(serial: String, server_host: String, server_port: u16) ->
     Ok(())
 }
 
+// ── Refresh devices ──────────────────────────────────────────────────────────
+
+#[tauri::command]
+async fn refresh_devices(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
+    let servers = Arc::clone(&state.servers);
+    tauri::async_runtime::spawn(poll_all_servers(servers, app));
+    Ok(())
+}
+
 // ── Shell command ─────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -247,6 +256,7 @@ pub fn run() {
             launch_scrcpy,
             run_shell_devices,
             load_config,
+            refresh_devices,
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();
@@ -255,7 +265,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 loop {
                     poll_all_servers(Arc::clone(&servers), app_handle.clone()).await;
-                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(300)).await;
                 }
             });
             Ok(())

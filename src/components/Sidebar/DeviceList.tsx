@@ -17,6 +17,8 @@ export function DeviceList() {
   const selectAll = useStore((s) => s.selectAll);
   const clearSelection = useStore((s) => s.clearSelection);
   const [filter, setFilter] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   const selectedCount = selectedSerials.size;
   const keyword = filter.trim().toLowerCase();
@@ -35,6 +37,21 @@ export function DeviceList() {
     }).catch(() => {});
   }
 
+  async function handleRefresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await invoke('refresh_devices');
+      setLastRefresh(new Date());
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  function formatLastRefresh(d: Date) {
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
   return (
     <div className={styles.wrap}>
       <div className={styles.header}>
@@ -44,8 +61,20 @@ export function DeviceList() {
         <div className={styles.actions}>
           <button className={styles.actionBtn} onClick={selectAll}>All</button>
           <button className={styles.actionBtn} onClick={clearSelection}>None</button>
+          <button
+            className={`${styles.actionBtn} ${refreshing ? styles.refreshing : ''}`}
+            onClick={handleRefresh}
+            title="Refresh device list"
+            disabled={refreshing}
+          >
+            ↻
+          </button>
         </div>
       </div>
+
+      {lastRefresh && (
+        <div className={styles.lastRefresh}>Updated {formatLastRefresh(lastRefresh)}</div>
+      )}
 
       <input
         className={styles.filterInput}
@@ -72,10 +101,9 @@ export function DeviceList() {
             >
               <div className={`${styles.statusDot} ${styles[`status_${d.status}`]}`} />
               <div className={styles.info}>
-                <div className={styles.name}>{d.model ? `${d.model} (${d.serial})` : d.serial}</div>
+                <div className={styles.name}>{d.serial}</div>
                 <div className={styles.meta}>
                   {STATUS_LABEL[d.status]}
-                  {d.battery >= 0 && ` · 🔋${d.battery}%`}
                 </div>
               </div>
               {d.status === 'online' && (

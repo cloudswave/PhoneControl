@@ -36,65 +36,45 @@ impl AdbServer {
     }
 }
 
-fn run_adb(args: &[String]) -> String {
-    Command::new("adb")
+fn run_adb_timeout(args: &[String], timeout_secs: u64) -> String {
+    let mut child = match Command::new("adb")
         .args(args)
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(_) => return String::new(),
+    };
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    return String::new();
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(_) => return String::new(),
+        }
+    }
+
+    child.wait_with_output()
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
         .unwrap_or_default()
 }
 
 fn fetch_device_info(serial: &str, srv: &AdbServer) -> Device {
-    let prefix = server_args(&srv.host, srv.port);
-
-    let model = {
-        let mut args = prefix.clone();
-        args.extend(["-s".into(), serial.into(), "shell".into(),
-            "getprop".into(), "ro.product.model".into()]);
-        run_adb(&args).trim().to_string()
-    };
-
-    let battery = {
-        let mut args = prefix.clone();
-        args.extend(["-s".into(), serial.into(), "shell".into(),
-            "dumpsys".into(), "battery".into()]);
-        let out = run_adb(&args);
-        out.lines()
-            .find(|l| l.contains("level:"))
-            .and_then(|l| l.split(':').nth(1))
-            .and_then(|v| v.trim().parse().ok())
-            .unwrap_or(-1)
-    };
-
-    let (screen_width, screen_height) = {
-        let mut args = prefix.clone();
-        args.extend(["-s".into(), serial.into(), "shell".into(),
-            "wm".into(), "size".into()]);
-        let out = run_adb(&args);
-        // "Physical size: 1080x1920"
-        out.lines()
-            .find(|l| l.contains("Physical size:") || l.contains("Override size:"))
-            .and_then(|l| l.split(':').nth(1))
-            .and_then(|s| {
-                let parts: Vec<&str> = s.trim().split('x').collect();
-                if parts.len() == 2 {
-                    let w = parts[0].trim().parse().ok()?;
-                    let h = parts[1].trim().parse().ok()?;
-                    Some((w, h))
-                } else {
-                    None
-                }
-            })
-            .unwrap_or((0, 0))
-    };
-
     Device {
         serial: serial.to_string(),
         status: "online".into(),
-        model,
-        battery,
-        screen_width,
-        screen_height,
+        model: String::new(),
+        battery: -1,
+        screen_width: 0,
+        screen_height: 0,
         server_host: srv.host.clone(),
         server_port: srv.port,
     }
@@ -104,31 +84,61 @@ pub async fn poll_all_servers(
     servers: Arc<Mutex<Vec<AdbServer>>>,
     app: AppHandle,
 ) {
-    let servers = servers.lock().await;
-    let mut all_devices: Vec<Device> = Vec::new();
+    let servers = servers.lock().await.clone();
+    let mut tasks = Vec::new();
 
     for srv in servers.iter().filter(|s| s.enabled) {
-        let mut args = server_args(&srv.host, srv.port);
-        args.push("devices".into());
-        let output = run_adb(&args);
-        let pairs = parse_adb_devices(&output);
+        let srv = srv.clone();
+        let task = tokio::spawn(async move {
+            let mut args = server_args(&srv.host, srv.port);
+            args.push("devices".into());
+            // 30 秒超时获取设备列表，连不上的 server 快速失败
+            let output = tokio::task::spawn_blocking(move || run_adb_timeout(&args, 30))
+                .await
+                .unwrap_or_default();
+            let pairs = parse_adb_devices(&output);
 
-        for (serial, status) in pairs {
-            if status == "device" {
-                let dev = fetch_device_info(&serial, srv);
-                all_devices.push(dev);
-            } else {
-                all_devices.push(Device {
-                    serial,
-                    status,
-                    model: String::new(),
-                    battery: -1,
-                    screen_width: 0,
-                    screen_height: 0,
-                    server_host: srv.host.clone(),
-                    server_port: srv.port,
-                });
+            let mut devices = Vec::new();
+            let mut info_tasks = Vec::new();
+
+            for (serial, status) in pairs {
+                if status == "device" {
+                    let serial = serial.clone();
+                    let srv = srv.clone();
+                    info_tasks.push(tokio::spawn(async move {
+                        tokio::time::timeout(
+                            std::time::Duration::from_secs(10),
+                            tokio::task::spawn_blocking(move || fetch_device_info(&serial, &srv))
+                        ).await.ok().and_then(|r| r.ok())
+                    }));
+                } else {
+                    devices.push(Device {
+                        serial,
+                        status,
+                        model: String::new(),
+                        battery: -1,
+                        screen_width: 0,
+                        screen_height: 0,
+                        server_host: srv.host.clone(),
+                        server_port: srv.port,
+                    });
+                }
             }
+
+            for task in info_tasks {
+                if let Ok(Some(dev)) = task.await {
+                    devices.push(dev);
+                }
+            }
+            devices
+        });
+        tasks.push(task);
+    }
+
+    let mut all_devices = Vec::new();
+    for task in tasks {
+        if let Ok(devices) = task.await {
+            all_devices.extend(devices);
         }
     }
 

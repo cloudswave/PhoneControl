@@ -21,6 +21,12 @@
   margin-left: 4px;
 }
 .actions { display: flex; gap: 4px; }
+.lastRefresh {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  opacity: 0.7;
+}
 .filterInput {
   width: 100%;
   background: var(--bg-primary);
@@ -45,6 +51,9 @@
   transition: color 0.15s, border-color 0.15s;
 }
 .actionBtn:hover { color: var(--text-primary); border-color: #555; }
+.actionBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.refreshing { display: inline-block; animation: spin 0.8s linear infinite; }
 .selInfo {
   font-size: 11px;
   color: var(--accent);
