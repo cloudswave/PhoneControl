@@ -49,7 +49,7 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
       let sourceHeight = rect.height;
 
       // If we have the actual image dimensions, calculate the correct mapping
-      if (imgElementRef.current && imgElementRef.current.naturalWidth > 0) {
+      if (imgElementRef.current && imgElementRef.current.naturalWidth > 0 && imgElementRef.current.naturalHeight > 0) {
         const layout = getImageLayout(
           rect.width,
           rect.height,
@@ -57,22 +57,15 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
           imgElementRef.current.naturalHeight
         );
 
-        // Check if click is within the displayed image area
-        if (
-          containerX >= layout.offsetX &&
-          containerX <= layout.offsetX + layout.displayWidth &&
-          containerY >= layout.offsetY &&
-          containerY <= layout.offsetY + layout.displayHeight
-        ) {
-          // Convert container coordinates to image coordinates
-          x = containerX - layout.offsetX;
-          y = containerY - layout.offsetY;
-          sourceWidth = layout.displayWidth;
-          sourceHeight = layout.displayHeight;
-        } else {
-          // Click is outside the image area, ignore
-          return;
-        }
+        // Convert container coordinates to image coordinates
+        x = containerX - layout.offsetX;
+        y = containerY - layout.offsetY;
+        sourceWidth = layout.displayWidth;
+        sourceHeight = layout.displayHeight;
+
+        // Clamp coordinates to image bounds (allow clicks slightly outside due to rounding)
+        x = Math.max(0, Math.min(x, sourceWidth));
+        y = Math.max(0, Math.min(y, sourceHeight));
       }
 
       if (selected) {
@@ -112,7 +105,7 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
         let sourceHeight = rect.height;
 
         // If we have the actual image dimensions, calculate the correct mapping
-        if (imgElementRef.current && imgElementRef.current.naturalWidth > 0) {
+        if (imgElementRef.current && imgElementRef.current.naturalWidth > 0 && imgElementRef.current.naturalHeight > 0) {
           const layout = getImageLayout(
             rect.width,
             rect.height,
@@ -127,6 +120,12 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
           y2 = containerY2 - layout.offsetY;
           sourceWidth = layout.displayWidth;
           sourceHeight = layout.displayHeight;
+
+          // Clamp coordinates to image bounds
+          x1 = Math.max(0, Math.min(x1, sourceWidth));
+          y1 = Math.max(0, Math.min(y1, sourceHeight));
+          x2 = Math.max(0, Math.min(x2, sourceWidth));
+          y2 = Math.max(0, Math.min(y2, sourceHeight));
         }
 
         if (selected) {
