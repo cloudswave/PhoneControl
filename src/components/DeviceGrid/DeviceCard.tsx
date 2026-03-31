@@ -35,43 +35,60 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
   // Tap on screenshot
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!isOnline || !selected) return;
+      if (!isOnline) return;
       const rect = e.currentTarget.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      cmds.tapDevices(x, y, rect.width, rect.height);
+      if (selected) {
+        cmds.tapDevices(x, y, rect.width, rect.height);
+      } else {
+        cmds.tapDevice(device, x, y, rect.width, rect.height);
+      }
     },
-    [isOnline, selected, cmds]
+    [isOnline, selected, device, cmds]
   );
 
   // Swipe tracking
   const swipeStart = useRef<{ x: number; y: number } | null>(null);
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isOnline || !selected) return;
+    if (!isOnline) return;
     swipeStart.current = { x: e.clientX, y: e.clientY };
-  }, [isOnline, selected]);
+  }, [isOnline]);
 
   const handleMouseUp = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!swipeStart.current || !isOnline || !selected) return;
+      if (!swipeStart.current || !isOnline) return;
       const dx = e.clientX - swipeStart.current.x;
       const dy = e.clientY - swipeStart.current.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist > 10) {
         const rect = e.currentTarget.getBoundingClientRect();
-        cmds.swipeDevices(
-          swipeStart.current.x - rect.left,
-          swipeStart.current.y - rect.top,
-          e.clientX - rect.left,
-          e.clientY - rect.top,
-          300,
-          rect.width,
-          rect.height
-        );
+        if (selected) {
+          cmds.swipeDevices(
+            swipeStart.current.x - rect.left,
+            swipeStart.current.y - rect.top,
+            e.clientX - rect.left,
+            e.clientY - rect.top,
+            300,
+            rect.width,
+            rect.height
+          );
+        } else {
+          cmds.swipeDevice(
+            device,
+            swipeStart.current.x - rect.left,
+            swipeStart.current.y - rect.top,
+            e.clientX - rect.left,
+            e.clientY - rect.top,
+            300,
+            rect.width,
+            rect.height
+          );
+        }
       }
       swipeStart.current = null;
     },
-    [isOnline, selected, cmds]
+    [isOnline, selected, device, cmds]
   );
 
   // Copy device ID to clipboard
@@ -102,7 +119,7 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
       {/* Screen */}
       <div
         ref={imgRef}
-        className={`${styles.screen} ${selected && isOnline ? styles.screenActive : ''}`}
+        className={`${styles.screen} ${isOnline ? styles.screenActive : ''}`}
         onClick={handleClick}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
@@ -111,7 +128,7 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
           <img src={screenshot} className={styles.img} alt="screen" draggable={false} />
         ) : (
           <div className={styles.placeholder}>
-            {isOnline ? (selected ? 'Loading...' : 'Click to select') : device.status}
+            {isOnline ? 'Loading...' : device.status}
           </div>
         )}
       </div>

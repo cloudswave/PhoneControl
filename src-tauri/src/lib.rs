@@ -4,12 +4,12 @@ pub mod adb;
 
 use state::AppState;
 use adb::server::{AdbServer, poll_all_servers};
-use adb::commands::{tap, swipe, send_text, keyevent, CommandResult};
+use adb::commands::{tap, swipe, send_text, keyevent, wake_up_device, CommandResult};
 use adb::screenshot::{start_screenshot_loop, stop_screenshot_loop};
 use config::{load_servers, save_servers, ServerConfig};
 
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, State, Manager};
+use tauri::{AppHandle, State, Manager};
 
 // ── Server management ────────────────────────────────────────────────────────
 
@@ -153,6 +153,16 @@ async fn keyevent_devices(
     Ok(results)
 }
 
+#[tauri::command]
+async fn wake_up_devices(
+    serials: Vec<DeviceResolution>,
+) -> Result<Vec<CommandResult>, String> {
+    let results = serials.iter().map(|d| {
+        wake_up_device(&d.server_host, d.server_port, &d.serial)
+    }).collect();
+    Ok(results)
+}
+
 // ── scrcpy ───────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -253,6 +263,7 @@ pub fn run() {
             swipe_devices,
             send_text_devices,
             keyevent_devices,
+            wake_up_devices,
             launch_scrcpy,
             run_shell_devices,
             load_config,

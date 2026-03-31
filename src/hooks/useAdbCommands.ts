@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '../store';
-import type { CommandResult, DeviceResolution } from '../types';
+import type { CommandResult, DeviceResolution, Device } from '../types';
 
 export function useAdbCommands() {
   return {
@@ -18,6 +18,17 @@ export function useAdbCommands() {
       return invoke<CommandResult[]>('tap_devices', { serials, x, y, sourceWidth, sourceHeight });
     },
 
+    async tapDevice(device: Device, x: number, y: number, sourceWidth: number, sourceHeight: number): Promise<CommandResult[]> {
+      const serials: DeviceResolution[] = [{
+        serial: device.serial,
+        width: device.screen_width,
+        height: device.screen_height,
+        server_host: device.server_host,
+        server_port: device.server_port,
+      }];
+      return invoke<CommandResult[]>('tap_devices', { serials, x, y, sourceWidth, sourceHeight });
+    },
+
     async swipeDevices(
       x1: number, y1: number, x2: number, y2: number,
       durationMs: number, sourceWidth: number, sourceHeight: number
@@ -32,6 +43,21 @@ export function useAdbCommands() {
           server_host: d.server_host,
           server_port: d.server_port,
         }));
+      return invoke<CommandResult[]>('swipe_devices', { serials, x1, y1, x2, y2, durationMs, sourceWidth, sourceHeight });
+    },
+
+    async swipeDevice(
+      device: Device,
+      x1: number, y1: number, x2: number, y2: number,
+      durationMs: number, sourceWidth: number, sourceHeight: number
+    ): Promise<CommandResult[]> {
+      const serials: DeviceResolution[] = [{
+        serial: device.serial,
+        width: device.screen_width,
+        height: device.screen_height,
+        server_host: device.server_host,
+        server_port: device.server_port,
+      }];
       return invoke<CommandResult[]>('swipe_devices', { serials, x1, y1, x2, y2, durationMs, sourceWidth, sourceHeight });
     },
 
@@ -91,6 +117,10 @@ export function useAdbCommands() {
           server_port: d.server_port,
         }));
       return invoke<CommandResult[]>('run_shell_devices', { serials, cmd });
+    },
+
+    async wakeUpDevices(serials: DeviceResolution[]): Promise<CommandResult[]> {
+      return invoke<CommandResult[]>('wake_up_devices', { serials });
     },
   };
 }
