@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '../../store';
+import { useAdbCommands } from '../../hooks/useAdbCommands';
 import { DeviceCard } from './DeviceCard';
 import styles from './DeviceGrid.module.css';
 
@@ -15,6 +16,7 @@ export function DeviceGrid() {
   const fps = useStore((s) => s.fps);
 
   const setPageSize = useStore((s) => s.setPageSize);
+  const cmds = useAdbCommands();
 
   const enabledDevices = devices.filter((d) => !disabledSerials.has(d.serial));
   const totalPages = Math.max(1, Math.ceil(enabledDevices.length / pageSize));
@@ -24,9 +26,8 @@ export function DeviceGrid() {
   const prevSerialsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    const currentSerials = new Set(
-      pageDevices.filter((d) => d.status === 'online').map((d) => d.serial)
-    );
+    const currentOnlineDevices = pageDevices.filter((d) => d.status === 'online');
+    const currentSerials = new Set(currentOnlineDevices.map((d) => d.serial));
     const prev = prevSerialsRef.current;
 
     // Stop preview for devices no longer on current page
@@ -36,20 +37,33 @@ export function DeviceGrid() {
       }
     }
 
+    const newDevices = currentOnlineDevices.filter((d) => !prev.has(d.serial));
+
     // Start preview for new devices on current page
-    for (const d of pageDevices) {
-      if (d.status === 'online' && !prev.has(d.serial)) {
-        invoke('start_preview', {
+    for (const d of newDevices) {
+      invoke('start_preview', {
+        serial: d.serial,
+        fps,
+        serverHost: d.server_host,
+        serverPort: d.server_port,
+      }).catch(() => {});
+    }
+
+    // Auto wake up only newly appeared devices on current page
+    if (newDevices.length > 0) {
+      cmds.wakeUpDevices(
+        newDevices.map((d) => ({
           serial: d.serial,
-          fps,
-          serverHost: d.server_host,
-          serverPort: d.server_port,
-        }).catch(() => {});
-      }
+          width: d.screen_width,
+          height: d.screen_height,
+          server_host: d.server_host,
+          server_port: d.server_port,
+        }))
+      ).catch(() => {});
     }
 
     prevSerialsRef.current = currentSerials;
-  }, [page, pageDevices.map((d) => d.serial).join(','), fps]);
+  }, [page, pageDevices.map((d) => `${d.serial}:${d.status}`).join(','), fps, cmds]);
 
   if (devices.length === 0) {
     return (

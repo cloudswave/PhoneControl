@@ -36,8 +36,11 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
 
   // Tap on screenshot with proper coordinate mapping
   const handleClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
+    async (e: React.MouseEvent<HTMLDivElement>) => {
       if (!isOnline) return;
+      e.preventDefault();
+      e.stopPropagation();
+
       const rect = e.currentTarget.getBoundingClientRect();
       const containerX = e.clientX - rect.left;
       const containerY = e.clientY - rect.top;
@@ -68,10 +71,21 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
         y = Math.max(0, Math.min(y, sourceHeight));
       }
 
-      if (selected) {
-        cmds.tapDevices(x, y, sourceWidth, sourceHeight);
-      } else {
-        cmds.tapDevice(device, x, y, sourceWidth, sourceHeight);
+      // Round to integers - Rust backend expects u32
+      sourceWidth = Math.round(sourceWidth);
+      sourceHeight = Math.round(sourceHeight);
+
+      try {
+        const results = selected
+          ? await cmds.tapDevices(x, y, sourceWidth, sourceHeight)
+          : await cmds.tapDevice(device, x, y, sourceWidth, sourceHeight);
+
+        const failed = results.filter(r => !r.success);
+        if (failed.length > 0) {
+          console.error('Tap failed:', failed);
+        }
+      } catch (err) {
+        console.error('Tap error:', err);
       }
     },
     [isOnline, selected, device, cmds]
@@ -81,12 +95,17 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
   const swipeStart = useRef<{ x: number; y: number } | null>(null);
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!isOnline) return;
+    e.preventDefault();
+    e.stopPropagation();
     swipeStart.current = { x: e.clientX, y: e.clientY };
   }, [isOnline]);
 
   const handleMouseUp = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
+    async (e: React.MouseEvent<HTMLDivElement>) => {
       if (!swipeStart.current || !isOnline) return;
+      e.preventDefault();
+      e.stopPropagation();
+
       const dx = e.clientX - swipeStart.current.x;
       const dy = e.clientY - swipeStart.current.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -128,10 +147,22 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
           y2 = Math.max(0, Math.min(y2, sourceHeight));
         }
 
-        if (selected) {
-          cmds.swipeDevices(x1, y1, x2, y2, 300, sourceWidth, sourceHeight);
-        } else {
-          cmds.swipeDevice(device, x1, y1, x2, y2, 300, sourceWidth, sourceHeight);
+        // Round to integers - Rust backend expects u32
+        sourceWidth = Math.round(sourceWidth);
+        sourceHeight = Math.round(sourceHeight);
+
+        try {
+          const results = selected
+            ? await cmds.swipeDevices(x1, y1, x2, y2, 300, sourceWidth, sourceHeight)
+            : await cmds.swipeDevice(device, x1, y1, x2, y2, 300, sourceWidth, sourceHeight);
+
+          // Log success/failure for debugging
+          const failed = results.filter(r => !r.success);
+          if (failed.length > 0) {
+            console.error('Swipe command failed:', failed);
+          }
+        } catch (err) {
+          console.error('Swipe command error:', err);
         }
       }
       swipeStart.current = null;
@@ -171,6 +202,7 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
         onClick={handleClick}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
+        onDragStart={(e) => e.preventDefault()}
       >
         {screenshot ? (
           <img
@@ -179,6 +211,7 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
             className={styles.img}
             alt="screen"
             draggable={false}
+            style={{ pointerEvents: 'none' }}
           />
         ) : (
           <div className={styles.placeholder}>

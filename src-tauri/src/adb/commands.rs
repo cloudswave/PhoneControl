@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+use std::time::Duration;
+use wait_timeout::ChildExt;
 
 use super::device::server_args;
 
@@ -21,14 +23,28 @@ fn run_adb_device(host: &str, port: u16, serial: &str, shell_args: &[&str]) -> R
     let mut args = server_args(host, port);
     args.extend(["-s".into(), serial.into(), "shell".into()]);
     args.extend(shell_args.iter().map(|s| s.to_string()));
-    let out = Command::new("adb")
+
+    let mut child = Command::new("adb")
         .args(&args)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if out.status.success() {
-        Ok(())
-    } else {
-        Err(String::from_utf8_lossy(&out.stderr).to_string())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn adb: {}", e))?;
+
+    match child
+        .wait_timeout(Duration::from_secs(3))
+        .map_err(|e| format!("Timeout handling error: {}", e))?
+    {
+        Some(status) => {
+            if status.success() {
+                Ok(())
+            } else {
+                Err(format!("ADB command failed with status: {}", status))
+            }
+        }
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Err("ADB command timeout (>3s) - process killed".to_string())
+        }
     }
 }
 
@@ -88,6 +104,79 @@ pub fn keyevent(host: &str, port: u16, serial: &str, keycode: u32) -> CommandRes
         serial: serial.to_string(),
         success: result.is_ok(),
         message: result.err().unwrap_or_default(),
+    }
+}
+
+pub fn wake_up_device(host: &str, port: u16, serial: &str) -> CommandResult {
+    let mut check_args = server_args(host, port);
+    check_args.extend(["-s".into(), serial.into(), "shell".into(), "dumpsys".into(), "power".into()]);
+
+    let mut child = match Command::new("adb").args(&check_args).spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            return CommandResult {
+                serial: serial.to_string(),
+                success: false,
+                message: e.to_string(),
+            }
+        }
+    };
+
+    match child.wait_timeout(Duration::from_secs(3)) {
+        Ok(Some(status)) => {
+            if !status.success() {
+                return CommandResult {
+                    serial: serial.to_string(),
+                    success: false,
+                    message: format!("Failed to check device state: {}", status),
+                };
+            }
+
+            let out = match Command::new("adb").args(&check_args).output() {
+                Ok(out) => out,
+                Err(e) => {
+                    return CommandResult {
+                        serial: serial.to_string(),
+                        success: false,
+                        message: e.to_string(),
+                    }
+                }
+            };
+            let output = String::from_utf8_lossy(&out.stdout);
+
+            if output.contains("mWakefulness=Asleep") {
+                let result = run_adb_device(host, port, serial, &["input", "keyevent", "26"]);
+                CommandResult {
+                    serial: serial.to_string(),
+                    success: result.is_ok(),
+                    message: if result.is_ok() {
+                        "Device woken up".to_string()
+                    } else {
+                        result.err().unwrap_or_default()
+                    },
+                }
+            } else {
+                CommandResult {
+                    serial: serial.to_string(),
+                    success: true,
+                    message: "Device already awake".to_string(),
+                }
+            }
+        }
+        Ok(None) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            CommandResult {
+                serial: serial.to_string(),
+                success: false,
+                message: "Timeout checking device state (>3s) - process killed".to_string(),
+            }
+        }
+        Err(e) => CommandResult {
+            serial: serial.to_string(),
+            success: false,
+            message: e.to_string(),
+        },
     }
 }
 

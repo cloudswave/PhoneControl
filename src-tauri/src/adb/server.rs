@@ -68,13 +68,67 @@ fn run_adb_timeout(args: &[String], timeout_secs: u64) -> String {
 }
 
 fn fetch_device_info(serial: &str, srv: &AdbServer) -> Device {
+    let mut screen_width: u32 = 0;
+    let mut screen_height: u32 = 0;
+    let mut model = String::new();
+    let mut battery: i32 = -1;
+
+    // Get screen resolution via `wm size`
+    {
+        let mut args = server_args(&srv.host, srv.port);
+        args.extend(["-s".into(), serial.into(), "shell".into(), "wm".into(), "size".into()]);
+        let output = run_adb_timeout(&args, 5);
+        // Parse "Physical size: 1080x2400" or "Override size: ..."
+        for line in output.lines().rev() {
+            if line.contains("size:") {
+                if let Some(dims) = line.split(':').last() {
+                    let parts: Vec<&str> = dims.trim().split('x').collect();
+                    if parts.len() == 2 {
+                        screen_width = parts[0].trim().parse().unwrap_or(0);
+                        screen_height = parts[1].trim().parse().unwrap_or(0);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Get model name
+    {
+        let mut args = server_args(&srv.host, srv.port);
+        args.extend(["-s".into(), serial.into(), "shell".into(),
+            "getprop".into(), "ro.product.model".into()]);
+        let output = run_adb_timeout(&args, 5);
+        model = output.trim().to_string();
+    }
+
+    // Get battery level
+    {
+        let mut args = server_args(&srv.host, srv.port);
+        args.extend(["-s".into(), serial.into(), "shell".into(),
+            "dumpsys".into(), "battery".into()]);
+        let output = run_adb_timeout(&args, 5);
+        for line in output.lines() {
+            let line = line.trim();
+            if line.starts_with("level:") {
+                battery = line.split(':').last()
+                    .and_then(|v| v.trim().parse().ok())
+                    .unwrap_or(-1);
+                break;
+            }
+        }
+    }
+
+    println!("[DEVICE] serial={} model={} battery={} screen={}x{}",
+        serial, model, battery, screen_width, screen_height);
+
     Device {
         serial: serial.to_string(),
         status: "online".into(),
-        model: String::new(),
-        battery: -1,
-        screen_width: 0,
-        screen_height: 0,
+        model,
+        battery,
+        screen_width,
+        screen_height,
         server_host: srv.host.clone(),
         server_port: srv.port,
     }
