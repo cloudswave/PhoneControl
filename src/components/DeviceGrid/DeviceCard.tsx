@@ -1,6 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { useStore } from '../../store';
 import { useAdbCommands } from '../../hooks/useAdbCommands';
+import { getImageLayout } from '../../utils/imageLayout';
 import type { Device } from '../../types';
 import styles from './DeviceCard.module.css';
 
@@ -16,6 +17,7 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
   const fps = useStore((s) => s.fps);
   const cmds = useAdbCommands();
   const imgRef = useRef<HTMLDivElement>(null);
+  const imgElementRef = useRef<HTMLImageElement>(null);
   const [copied, setCopied] = useState(false);
 
   const isOnline = device.status === 'online';
@@ -32,17 +34,51 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
     }
   }, [device.serial, device.server_host, device.server_port, selected, isOnline, fps, cmds, toggleSelect]);
 
-  // Tap on screenshot
+  // Tap on screenshot with proper coordinate mapping
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (!isOnline) return;
       const rect = e.currentTarget.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const containerX = e.clientX - rect.left;
+      const containerY = e.clientY - rect.top;
+
+      // Get actual image dimensions and calculate proper coordinates
+      let x = containerX;
+      let y = containerY;
+      let sourceWidth = rect.width;
+      let sourceHeight = rect.height;
+
+      // If we have the actual image dimensions, calculate the correct mapping
+      if (imgElementRef.current && imgElementRef.current.naturalWidth > 0) {
+        const layout = getImageLayout(
+          rect.width,
+          rect.height,
+          imgElementRef.current.naturalWidth,
+          imgElementRef.current.naturalHeight
+        );
+
+        // Check if click is within the displayed image area
+        if (
+          containerX >= layout.offsetX &&
+          containerX <= layout.offsetX + layout.displayWidth &&
+          containerY >= layout.offsetY &&
+          containerY <= layout.offsetY + layout.displayHeight
+        ) {
+          // Convert container coordinates to image coordinates
+          x = containerX - layout.offsetX;
+          y = containerY - layout.offsetY;
+          sourceWidth = layout.displayWidth;
+          sourceHeight = layout.displayHeight;
+        } else {
+          // Click is outside the image area, ignore
+          return;
+        }
+      }
+
       if (selected) {
-        cmds.tapDevices(x, y, rect.width, rect.height);
+        cmds.tapDevices(x, y, sourceWidth, sourceHeight);
       } else {
-        cmds.tapDevice(device, x, y, rect.width, rect.height);
+        cmds.tapDevice(device, x, y, sourceWidth, sourceHeight);
       }
     },
     [isOnline, selected, device, cmds]
@@ -63,27 +99,40 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist > 10) {
         const rect = e.currentTarget.getBoundingClientRect();
+        const containerX1 = swipeStart.current.x - rect.left;
+        const containerY1 = swipeStart.current.y - rect.top;
+        const containerX2 = e.clientX - rect.left;
+        const containerY2 = e.clientY - rect.top;
+
+        let x1 = containerX1;
+        let y1 = containerY1;
+        let x2 = containerX2;
+        let y2 = containerY2;
+        let sourceWidth = rect.width;
+        let sourceHeight = rect.height;
+
+        // If we have the actual image dimensions, calculate the correct mapping
+        if (imgElementRef.current && imgElementRef.current.naturalWidth > 0) {
+          const layout = getImageLayout(
+            rect.width,
+            rect.height,
+            imgElementRef.current.naturalWidth,
+            imgElementRef.current.naturalHeight
+          );
+
+          // Convert container coordinates to image coordinates
+          x1 = containerX1 - layout.offsetX;
+          y1 = containerY1 - layout.offsetY;
+          x2 = containerX2 - layout.offsetX;
+          y2 = containerY2 - layout.offsetY;
+          sourceWidth = layout.displayWidth;
+          sourceHeight = layout.displayHeight;
+        }
+
         if (selected) {
-          cmds.swipeDevices(
-            swipeStart.current.x - rect.left,
-            swipeStart.current.y - rect.top,
-            e.clientX - rect.left,
-            e.clientY - rect.top,
-            300,
-            rect.width,
-            rect.height
-          );
+          cmds.swipeDevices(x1, y1, x2, y2, 300, sourceWidth, sourceHeight);
         } else {
-          cmds.swipeDevice(
-            device,
-            swipeStart.current.x - rect.left,
-            swipeStart.current.y - rect.top,
-            e.clientX - rect.left,
-            e.clientY - rect.top,
-            300,
-            rect.width,
-            rect.height
-          );
+          cmds.swipeDevice(device, x1, y1, x2, y2, 300, sourceWidth, sourceHeight);
         }
       }
       swipeStart.current = null;
@@ -125,7 +174,13 @@ function DeviceCardInner({ device, screenshot, selected }: Props) {
         onMouseUp={handleMouseUp}
       >
         {screenshot ? (
-          <img src={screenshot} className={styles.img} alt="screen" draggable={false} />
+          <img
+            ref={imgElementRef}
+            src={screenshot}
+            className={styles.img}
+            alt="screen"
+            draggable={false}
+          />
         ) : (
           <div className={styles.placeholder}>
             {isOnline ? 'Loading...' : device.status}
