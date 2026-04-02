@@ -35,6 +35,10 @@ interface AppStore {
   pageSize: number;
   setPage: (page: number) => void;
   setPageSize: (size: number) => void;
+
+  // Overview mode
+  overviewMode: boolean;
+  setOverviewMode: (on: boolean) => void;
 }
 
 export const useStore = create<AppStore>((set) => ({
@@ -86,4 +90,7 @@ export const useStore = create<AppStore>((set) => ({
     const totalPages = Math.max(1, Math.ceil(s.devices.length / size));
     return { pageSize: size, page: Math.min(s.page, totalPages - 1) };
   }),
+
+  overviewMode: false,
+  setOverviewMode: (on) => set({ overviewMode: on }),
 }));
