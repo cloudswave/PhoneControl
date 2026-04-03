@@ -75,14 +75,25 @@
   font-size: 12px;
   color: var(--text-secondary);
 }
-.pageSizeSelect {
+.pageSizeInput {
   background: var(--bg-card);
   color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 2px 6px;
   font-size: 12px;
+  width: 48px;
+  text-align: center;
   outline: none;
+  -moz-appearance: textfield;
+}
+.pageSizeInput::-webkit-inner-spin-button,
+.pageSizeInput::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.pageSizeInput:focus {
+  border-color: var(--accent);
 }
 
 .overviewBtn {

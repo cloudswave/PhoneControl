@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { AdbServer, Device } from '../types';
 
-const PAGE_SIZE = 14;
+const PAGE_SIZE = 10;
 
 interface AppStore {
   // Servers

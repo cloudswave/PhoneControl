@@ -6,19 +6,20 @@ import { DeviceCard } from './DeviceCard';
 import styles from './DeviceGrid.module.css';
 
 const CARD_BASE_WIDTH = 200;
-const CARD_BASE_HEIGHT = 356 + 33 + 30; // screen + header + footer
+const SCREEN_BASE_HEIGHT = 356; // only the screen area scales
+const FIXED_HEADER_HEIGHT = 33; // header: padding + font (fixed px)
+const FIXED_FOOTER_HEIGHT = 30; // footer: padding + font (fixed px)
 const GRID_GAP = 10;
 const GRID_PADDING = 12;
 
-function useOverviewScale(
+function useAutoScale(
   containerRef: React.RefObject<HTMLDivElement | null>,
   count: number,
-  active: boolean
 ) {
   const [scale, setScale] = useState(1);
 
   const calcScale = useCallback(() => {
-    if (!active || count === 0 || !containerRef.current) {
+    if (count === 0 || !containerRef.current) {
       setScale(1);
       return;
     }
@@ -27,27 +28,29 @@ function useOverviewScale(
     const availH = rect.height - GRID_PADDING * 2;
     if (availW <= 0 || availH <= 0) return;
 
-    // Try different column counts, pick the one that uses the largest scale while fitting
+    // Try different column counts, pick the one that uses the largest scale while fitting.
+    // Card height = FIXED_HEADER_HEIGHT + SCREEN_BASE_HEIGHT * scale + FIXED_FOOTER_HEIGHT
+    // Header & footer use fixed px sizes, only the screen area scales.
     let best = 0;
     for (let cols = 1; cols <= count; cols++) {
       const rows = Math.ceil(count / cols);
       const maxCardW = (availW - GRID_GAP * (cols - 1)) / cols;
       const maxCardH = (availH - GRID_GAP * (rows - 1)) / rows;
       const sx = maxCardW / CARD_BASE_WIDTH;
-      const sy = maxCardH / CARD_BASE_HEIGHT;
-      const s = Math.min(sx, sy, 1); // never scale up
+      const sy = (maxCardH - FIXED_HEADER_HEIGHT - FIXED_FOOTER_HEIGHT) / SCREEN_BASE_HEIGHT;
+      if (sy <= 0) continue; // not enough room for even header+footer
+      const s = Math.min(sx, sy);
       if (s > best) best = s;
     }
     setScale(Math.max(best, 0.1));
-  }, [active, count, containerRef]);
+  }, [count, containerRef]);
 
   useEffect(() => {
     calcScale();
-    if (!active) return;
     const ro = new ResizeObserver(calcScale);
     if (containerRef.current) ro.observe(containerRef.current);
     return () => ro.disconnect();
-  }, [active, calcScale, containerRef]);
+  }, [calcScale, containerRef]);
 
   return scale;
 }
@@ -74,7 +77,8 @@ export function DeviceGrid() {
     : enabledDevices.slice(page * pageSize, (page + 1) * pageSize);
 
   const gridRef = useRef<HTMLDivElement>(null);
-  const scale = useOverviewScale(gridRef, enabledDevices.length, overviewMode);
+  const scaleCount = overviewMode ? enabledDevices.length : pageDevices.length;
+  const scale = useAutoScale(gridRef, scaleCount);
 
   // Track previous page serials to start/stop previews on page change
   const prevSerialsRef = useRef<Set<string>>(new Set());
@@ -129,19 +133,17 @@ export function DeviceGrid() {
     );
   }
 
-  const cardStyle = overviewMode
-    ? {
-        '--card-width': `${CARD_BASE_WIDTH * scale}px`,
-        '--card-height': `${356 * scale}px`,
-        fontSize: `${scale * 100}%`,
-      } as React.CSSProperties
-    : undefined;
+  const cardStyle = {
+    '--card-width': `${CARD_BASE_WIDTH * scale}px`,
+    '--card-height': `${SCREEN_BASE_HEIGHT * scale}px`,
+    fontSize: `${scale * 100}%`,
+  } as React.CSSProperties;
 
   return (
     <div className={styles.wrapper}>
       <div
         ref={gridRef}
-        className={`${styles.grid} ${overviewMode ? styles.gridOverview : ''}`}
+        className={`${styles.grid} ${styles.gridOverview}`}
       >
         {pageDevices.map((device) => (
           <div key={device.serial} style={cardStyle}>
@@ -158,15 +160,18 @@ export function DeviceGrid() {
           {!overviewMode && (
             <div className={styles.pageSizeWrap}>
               <span className={styles.pageSizeLabel}>Per page</span>
-              <select
-                className={styles.pageSizeSelect}
+              <input
+                type="number"
+                className={styles.pageSizeInput}
                 value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-              >
-                {[6, 8, 10, 12, 14, 16, 20, 24].map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
+                min={1}
+                max={999}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  if (v > 0) setPageSize(v);
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+              />
             </div>
           )}
           {!overviewMode && totalPages > 1 && (

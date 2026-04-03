@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useAdbCommands } from '../../hooks/useAdbCommands';
 import { useStore } from '../../store';
 import type { CommandResult } from '../../types';
@@ -18,6 +18,9 @@ export function Toolbar() {
   const [text, setText] = useState('');
   const [shellCmd, setShellCmd] = useState('');
   const [shellResults, setShellResults] = useState<CommandResult[] | null>(null);
+  const shellHistoryRef = useRef<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const savedInputRef = useRef('');
   const cmds = useAdbCommands();
   const selectedCount = useStore((s) => s.selectedSerials.size);
 
@@ -29,8 +32,46 @@ export function Toolbar() {
 
   async function runShell() {
     if (!shellCmd.trim()) return;
+    const history = shellHistoryRef.current;
+    if (history.length === 0 || history[history.length - 1] !== shellCmd) {
+      history.push(shellCmd);
+    }
+    setHistoryIndex(-1);
+    savedInputRef.current = '';
     const results = await cmds.runShell(shellCmd);
     setShellResults(results);
+    setShellCmd('');
+  }
+
+  function handleShellKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      runShell();
+      return;
+    }
+    const history = shellHistoryRef.current;
+    if (history.length === 0) return;
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (historyIndex === -1) {
+        savedInputRef.current = shellCmd;
+        setHistoryIndex(history.length - 1);
+        setShellCmd(history[history.length - 1]);
+      } else if (historyIndex > 0) {
+        setHistoryIndex(historyIndex - 1);
+        setShellCmd(history[historyIndex - 1]);
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (historyIndex === -1) return;
+      if (historyIndex < history.length - 1) {
+        setHistoryIndex(historyIndex + 1);
+        setShellCmd(history[historyIndex + 1]);
+      } else {
+        setHistoryIndex(-1);
+        setShellCmd(savedInputRef.current);
+      }
+    }
   }
 
   return (
@@ -115,7 +156,7 @@ export function Toolbar() {
               placeholder="adb shell command..."
               value={shellCmd}
               onChange={(e) => setShellCmd(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && runShell()}
+              onKeyDown={handleShellKeyDown}
               disabled={selectedCount === 0}
             />
             <button
