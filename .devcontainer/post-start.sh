@@ -13,4 +13,6 @@ if [ ! -d "node_modules" ]; then
     npm install
 fi
 
+bash .devcontainer/install-novnc-desktop.sh
+
 echo "✅ Post-start setup completed!"

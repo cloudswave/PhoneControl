@@ -45,7 +45,7 @@
     }
   },
 
-  "forwardPorts": [1420, 1421, 3000, 5173],
+  "forwardPorts": [1420, 1421, 3000, 5173, 6080],
   "portsAttributes": {
     "1420": {
       "label": "Tauri Dev Server",
@@ -61,6 +61,10 @@
     },
     "3000": {
       "label": "App Server",
+      "onAutoForward": "notify"
+    },
+    "6080": {
+      "label": "noVNC Web UI",
       "onAutoForward": "notify"
     }
   },
