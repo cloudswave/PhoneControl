@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "phone-control",
+  "productName": "安卓群控",
   "version": "0.1.0",
-  "identifier": "com.mac.phone-control",
+  "identifier": "com.app.android-group-control",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "phone-control",
+        "title": "安卓群控",
         "width": 800,
         "height": 600
       }
