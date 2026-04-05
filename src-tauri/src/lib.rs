@@ -5,7 +5,7 @@ mod auth;
 
 use state::AppState;
 use adb::server::{AdbServer, poll_all_servers};
-use adb::commands::{tap, swipe, send_text, keyevent, wake_up_device, CommandResult};
+use adb::commands::{tap, swipe, send_text, keyevent, wake_up_device, install_apk, CommandResult};
 use adb::scan::{scan_ip_ports, ScanResult};
 use adb::tcpip::{enable_tcpip_all_usb, TcpIpResult};
 use adb::screenshot::{start_screenshot_loop, stop_screenshot_loop};
@@ -95,7 +95,7 @@ async fn set_fps(serial: String, fps: u32, server_host: String, server_port: u16
     Ok(())
 }
 
-// ── Group control ────────────────────────────────────────────────────────────
+// ── Group control ───────────────────────────────────────────────────────────
 
 #[derive(serde::Deserialize)]
 pub struct DeviceResolution {
@@ -162,6 +162,17 @@ async fn wake_up_devices(
 ) -> Result<Vec<CommandResult>, String> {
     let results = serials.iter().map(|d| {
         wake_up_device(&d.server_host, d.server_port, &d.serial)
+    }).collect();
+    Ok(results)
+}
+
+#[tauri::command]
+async fn install_apk_devices(
+    serials: Vec<DeviceResolution>,
+    apk_path: String,
+) -> Result<Vec<CommandResult>, String> {
+    let results = serials.iter().map(|d| {
+        install_apk(&d.server_host, d.server_port, &d.serial, &apk_path)
     }).collect();
     Ok(results)
 }
@@ -273,6 +284,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             auth::verify_authorization,
@@ -289,6 +301,7 @@ pub fn run() {
             send_text_devices,
             keyevent_devices,
             wake_up_devices,
+            install_apk_devices,
             launch_scrcpy,
             run_shell_devices,
             load_config,

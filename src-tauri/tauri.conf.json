@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "安卓群控",
+  "productName": "android-group-control",
   "version": "0.1.0",
   "identifier": "com.app.android-group-control",
   "build": {

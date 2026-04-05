@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { open } from '@tauri-apps/plugin-dialog';
 import { useAdbCommands } from '../../hooks/useAdbCommands';
 import { useStore } from '../../store';
 import type { CommandResult, TcpIpResult } from '../../types';
@@ -20,6 +21,8 @@ export function Toolbar() {
   const [shellResults, setShellResults] = useState<CommandResult[] | null>(null);
   const [tcpipLoading, setTcpipLoading] = useState(false);
   const [tcpipResults, setTcpipResults] = useState<TcpIpResult[] | null>(null);
+  const [installLoading, setInstallLoading] = useState(false);
+  const [installResults, setInstallResults] = useState<CommandResult[] | null>(null);
   const shellHistoryRef = useRef<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const savedInputRef = useRef('');
@@ -89,6 +92,36 @@ export function Toolbar() {
     }
   }
 
+  async function openFilePicker() {
+    if (selectedCount === 0) {
+      alert('Please select at least one device');
+      return;
+    }
+
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{
+          name: 'APK',
+          extensions: ['apk']
+        }]
+      });
+
+      if (!selected) return;
+
+      const filePath = selected as string;
+      setInstallLoading(true);
+      setInstallResults(null);
+      
+      const results = await cmds.installApk(filePath);
+      setInstallResults(results);
+    } catch (e) {
+      console.error('Install error:', e);
+    } finally {
+      setInstallLoading(false);
+    }
+  }
+
   return (
     <div className={styles.toolbarWrap}>
       {/* TCP/IP results overlay */}
@@ -131,6 +164,26 @@ export function Toolbar() {
         </div>
       )}
 
+      {/* Install APK results overlay */}
+      {installResults && (
+        <div className={styles.shellResults}>
+          <div className={styles.shellResultsHeader}>
+            <span>APK Install Results ({installResults.length} devices)</span>
+            <button className={styles.shellCloseBtn} onClick={() => setInstallResults(null)}>x</button>
+          </div>
+          <div className={styles.shellResultsList}>
+            {installResults.map((r) => (
+              <div key={r.serial} className={styles.shellResultItem}>
+                <span className={`${styles.shellSerial} ${r.success ? styles.shellOk : styles.shellErr}`}>
+                  {r.serial}
+                </span>
+                <pre className={styles.shellOutput}>{r.message || '(no output)'}</pre>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className={styles.toolbar}>
         <div className={styles.selBadge}>
           {selectedCount > 0 ? `${selectedCount} selected` : 'None selected'}
@@ -149,6 +202,20 @@ export function Toolbar() {
             </button>
           ))}
         </div>
+
+        {/* Install APK button */}
+        <button
+          className={`${styles.tcpipBtn} ${installLoading ? styles.loading : ''}`}
+          onClick={openFilePicker}
+          disabled={installLoading || selectedCount === 0}
+          title="安装APK"
+        >
+          {installLoading ? (
+            <span className={styles.spinner}></span>
+          ) : (
+            <span className={styles.tcpipIcon}>📦</span>
+          )}
+        </button>
 
         {/* Mode toggle */}
         <div className={styles.modeToggle}>

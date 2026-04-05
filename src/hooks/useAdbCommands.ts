@@ -126,5 +126,19 @@ export function useAdbCommands() {
     async enableTcpipAll(): Promise<TcpIpResult[]> {
       return invoke<TcpIpResult[]>('enable_tcpip_all');
     },
+
+    async installApk(apkPath: string): Promise<CommandResult[]> {
+      const { devices, selectedSerials } = useStore.getState();
+      const serials: DeviceResolution[] = devices
+        .filter((d) => selectedSerials.has(d.serial) && d.status === 'online')
+        .map((d) => ({
+          serial: d.serial,
+          width: d.screen_width,
+          height: d.screen_height,
+          server_host: d.server_host,
+          server_port: d.server_port,
+        }));
+      return invoke<CommandResult[]>('install_apk_devices', { serials, apkPath });
+    },
   };
 }

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::time::Duration;
+use std::path::Path;
 use wait_timeout::ChildExt;
 
 use super::device::server_args;
@@ -104,6 +105,57 @@ pub fn keyevent(host: &str, port: u16, serial: &str, keycode: u32) -> CommandRes
         serial: serial.to_string(),
         success: result.is_ok(),
         message: result.err().unwrap_or_default(),
+    }
+}
+
+pub fn install_apk(host: &str, port: u16, serial: &str, apk_path: &str) -> CommandResult {
+    // Validate APK path exists
+    let path = Path::new(apk_path);
+    if !path.exists() {
+        return CommandResult {
+            serial: serial.to_string(),
+            success: false,
+            message: format!("APK file not found: {}", apk_path),
+        };
+    }
+
+    // Check if file has .apk extension
+    if !apk_path.to_lowercase().ends_with(".apk") {
+        return CommandResult {
+            serial: serial.to_string(),
+            success: false,
+            message: "Invalid file type: only .apk files are supported".to_string(),
+        };
+    }
+
+    let mut args = server_args(host, port);
+    args.extend(["-s".into(), serial.into(), "install".into(), "-r".into()]);
+    args.push(apk_path.into());
+
+    let output = Command::new("adb")
+        .args(&args)
+        .output();
+
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let message = if out.status.success() {
+                stdout.trim().to_string()
+            } else {
+                format!("{}{}", stdout, stderr).trim().to_string()
+            };
+            CommandResult {
+                serial: serial.to_string(),
+                success: out.status.success(),
+                message,
+            }
+        }
+        Err(e) => CommandResult {
+            serial: serial.to_string(),
+            success: false,
+            message: format!("Failed to execute adb install: {}", e),
+        },
     }
 }
 
