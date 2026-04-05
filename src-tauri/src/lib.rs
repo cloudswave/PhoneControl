@@ -231,29 +231,27 @@ async fn run_shell_devices(
     cmd: String,
 ) -> Result<Vec<CommandResult>, String> {
     use adb::device::server_args;
+    use adb::run_adb_command;
+    
     let results: Vec<CommandResult> = serials.iter().map(|d| {
         let mut args = server_args(&d.server_host, d.server_port);
         args.extend(["-s".into(), d.serial.clone(), "shell".into()]);
         args.extend(cmd.split_whitespace().map(String::from));
-        let out = std::process::Command::new("adb")
-            .args(&args)
-            .output();
-        match out {
-            Ok(o) => CommandResult {
-                serial: d.serial.clone(),
-                success: o.status.success(),
-                message: String::from_utf8_lossy(&o.stdout).to_string()
-                    + &String::from_utf8_lossy(&o.stderr),
-            },
-            Err(e) => CommandResult {
-                serial: d.serial.clone(),
-                success: false,
-                message: e.to_string(),
-            },
+        
+        let out = run_adb_command(&args);
+
+        let message = String::from_utf8_lossy(&out.stdout).to_string()
+            + &String::from_utf8_lossy(&out.stderr);
+        
+        CommandResult {
+            serial: d.serial.clone(),
+            success: out.status.success(),
+            message,
         }
     }).collect();
     Ok(results)
 }
+
 
 // ── Config ───────────────────────────────────────────────────────────────────
 

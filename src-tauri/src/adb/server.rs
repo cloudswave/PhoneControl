@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 use tokio::sync::Mutex;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
@@ -7,6 +6,7 @@ use uuid::Uuid;
 
 use crate::config::ServerConfig;
 use super::device::{Device, parse_adb_devices, server_args};
+use super::run_adb_command_with_timeout;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdbServer {
@@ -36,37 +36,6 @@ impl AdbServer {
     }
 }
 
-fn run_adb_timeout(args: &[String], timeout_secs: u64) -> String {
-    let mut child = match Command::new("adb")
-        .args(args)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(_) => return String::new(),
-    };
-
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
-                    return String::new();
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            Err(_) => return String::new(),
-        }
-    }
-
-    child.wait_with_output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-        .unwrap_or_default()
-}
-
 fn fetch_device_info(serial: &str, srv: &AdbServer) -> Device {
     let mut screen_width: u32 = 0;
     let mut screen_height: u32 = 0;
@@ -77,7 +46,7 @@ fn fetch_device_info(serial: &str, srv: &AdbServer) -> Device {
     {
         let mut args = server_args(&srv.host, srv.port);
         args.extend(["-s".into(), serial.into(), "shell".into(), "wm".into(), "size".into()]);
-        let output = run_adb_timeout(&args, 5);
+        let output = run_adb_command_with_timeout(&args, 5);
         // Parse "Physical size: 1080x2400" or "Override size: ..."
         for line in output.lines().rev() {
             if line.contains("size:") {
@@ -98,7 +67,7 @@ fn fetch_device_info(serial: &str, srv: &AdbServer) -> Device {
         let mut args = server_args(&srv.host, srv.port);
         args.extend(["-s".into(), serial.into(), "shell".into(),
             "getprop".into(), "ro.product.model".into()]);
-        let output = run_adb_timeout(&args, 5);
+        let output = run_adb_command_with_timeout(&args, 5);
         model = output.trim().to_string();
     }
 
@@ -107,7 +76,7 @@ fn fetch_device_info(serial: &str, srv: &AdbServer) -> Device {
         let mut args = server_args(&srv.host, srv.port);
         args.extend(["-s".into(), serial.into(), "shell".into(),
             "dumpsys".into(), "battery".into()]);
-        let output = run_adb_timeout(&args, 5);
+        let output = run_adb_command_with_timeout(&args, 5);
         for line in output.lines() {
             let line = line.trim();
             if line.starts_with("level:") {
@@ -138,6 +107,8 @@ pub async fn poll_all_servers(
     servers: Arc<Mutex<Vec<AdbServer>>>,
     app: AppHandle,
 ) {
+    use super::run_adb_command;
+
     let servers = servers.lock().await.clone();
     let mut tasks = Vec::new();
 
@@ -147,9 +118,14 @@ pub async fn poll_all_servers(
             let mut args = server_args(&srv.host, srv.port);
             args.push("devices".into());
             // 30 秒超时获取设备列表，连不上的 server 快速失败
-            let output = tokio::task::spawn_blocking(move || run_adb_timeout(&args, 30))
-                .await
-                .unwrap_or_default();
+            let output = tokio::task::spawn_blocking(move || {
+                run_adb_command(&args)
+            }).await;
+
+            let output = match output {
+                Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
+                Err(_) => String::new(),
+            };
             let pairs = parse_adb_devices(&output);
 
             let mut devices = Vec::new();

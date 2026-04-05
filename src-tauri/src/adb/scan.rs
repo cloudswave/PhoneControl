@@ -1,5 +1,6 @@
-use std::process::Command;
 use serde::{Deserialize, Serialize};
+
+use super::run_adb_command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanResult {
@@ -13,47 +14,35 @@ pub struct ScanResult {
 pub fn try_connect(host: &str, port: u16) -> ScanResult {
     let address = format!("{}:{}", host, port);
     
-    let output = Command::new("adb")
-        .args(["connect", &address])
-        .output();
+    let out = run_adb_command(&["connect".into(), address.into()]);
 
-    match output {
-        Ok(o) => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            let stderr = String::from_utf8_lossy(&o.stderr);
-            let output_str = if stdout.is_empty() { stderr.to_string() } else { stdout.to_string() };
-            
-            // 检查是否连接成功
-            if output_str.contains("connected") || output_str.contains("already connected") {
-                ScanResult {
-                    ip: host.to_string(),
-                    port,
-                    success: true,
-                    message: output_str.trim().to_string(),
-                }
-            } else if output_str.contains("failed") || output_str.contains("cannot") || output_str.contains("refused") {
-                ScanResult {
-                    ip: host.to_string(),
-                    port,
-                    success: false,
-                    message: output_str.trim().to_string(),
-                }
-            } else {
-                // 其他情况视为失败
-                ScanResult {
-                    ip: host.to_string(),
-                    port,
-                    success: false,
-                    message: output_str.trim().to_string(),
-                }
-            }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let output_str = if stdout.is_empty() { stderr.to_string() } else { stdout.to_string() };
+    
+    // 检查是否连接成功
+    if output_str.contains("connected") || output_str.contains("already connected") {
+        ScanResult {
+            ip: host.to_string(),
+            port,
+            success: true,
+            message: output_str.trim().to_string(),
         }
-        Err(e) => ScanResult {
+    } else if output_str.contains("failed") || output_str.contains("cannot") || output_str.contains("refused") {
+        ScanResult {
             ip: host.to_string(),
             port,
             success: false,
-            message: e.to_string(),
-        },
+            message: output_str.trim().to_string(),
+        }
+    } else {
+        // 其他情况视为失败
+        ScanResult {
+            ip: host.to_string(),
+            port,
+            success: false,
+            message: output_str.trim().to_string(),
+        }
     }
 }
 

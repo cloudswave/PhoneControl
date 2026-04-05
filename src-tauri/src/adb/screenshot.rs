@@ -59,6 +59,22 @@ async fn capture_screenshot(serial: &str, host: &str, port: u16) -> Option<Strin
     args.extend(["-s".into(), serial.into(), "exec-out".into(),
         "screencap".into(), "-p".into()]);
 
+    // 对于异步命令，需要使用 tokio 的 Command
+    // 这里暂时保留原有的 tokio::process::Command 方式，
+    // 因为 spawn_adb_command 是同步的，无法直接在异步中使用
+    #[cfg(target_os = "windows")]
+    let result = {
+        use std::os::windows::process::CommandExt;
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            tokio::process::Command::new("adb")
+                .args(&args)
+                .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                .output()
+        ).await
+    };
+
+    #[cfg(not(target_os = "windows"))]
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(5),
         tokio::process::Command::new("adb")

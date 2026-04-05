@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::process::Command;
+
+use super::run_adb_command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TcpIpResult {
@@ -10,76 +11,58 @@ pub struct TcpIpResult {
 
 /// 获取所有USB连接的ADB设备
 pub fn get_usb_devices() -> Vec<String> {
-    let output = Command::new("adb")
-        .args(["devices", "-l"])
-        .output();
+    let out = run_adb_command(&["devices".into(), "-l".into()]);
 
-    match output {
-        Ok(o) => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            stdout
-                .lines()
-                .skip(1) // skip "List of devices attached"
-                .filter_map(|line| {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() >= 2 {
-                        let serial = parts[0].to_string();
-                        let status = parts[1].to_string();
-                        // 只返回USB设备（不包含ip:port格式的远程设备）
-                        if status == "device" && !serial.contains(':') {
-                            Some(serial)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        }
-        Err(_) => Vec::new(),
-    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    stdout
+        .lines()
+        .skip(1) // skip "List of devices attached"
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let serial = parts[0].to_string();
+                let status = parts[1].to_string();
+                // 只返回USB设备（不包含ip:port格式的远程设备）
+                if status == "device" && !serial.contains(':') {
+                    Some(serial)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// 对指定的serial执行adb tcpip 5555
 pub fn enable_tcpip(serial: &str) -> TcpIpResult {
-    let output = Command::new("adb")
-        .args(["-s", serial, "tcpip", "5555"])
-        .output();
+    let out = run_adb_command(&["-s".into(), serial.to_string(), "tcpip".into(), "5555".into()]);
 
-    match output {
-        Ok(o) => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            let stderr = String::from_utf8_lossy(&o.stderr);
-            let output_str = if stdout.is_empty() { stderr.to_string() } else { stdout.to_string() };
-            
-            // 检查是否成功开启tcpip
-            if output_str.contains("restarting") || output_str.contains("5555") {
-                TcpIpResult {
-                    serial: serial.to_string(),
-                    success: true,
-                    message: output_str.trim().to_string(),
-                }
-            } else if output_str.contains("error") || output_str.contains("failed") || output_str.contains("cannot") {
-                TcpIpResult {
-                    serial: serial.to_string(),
-                    success: false,
-                    message: output_str.trim().to_string(),
-                }
-            } else {
-                // 其他情况视为成功（有些设备输出比较特殊）
-                TcpIpResult {
-                    serial: serial.to_string(),
-                    success: true,
-                    message: output_str.trim().to_string(),
-                }
-            }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let output_str = if stdout.is_empty() { stderr.to_string() } else { stdout.to_string() };
+    
+    // 检查是否成功开启tcpip
+    if output_str.contains("restarting") || output_str.contains("5555") {
+        TcpIpResult {
+            serial: serial.to_string(),
+            success: true,
+            message: output_str.trim().to_string(),
         }
-        Err(e) => TcpIpResult {
+    } else if output_str.contains("error") || output_str.contains("failed") || output_str.contains("cannot") {
+        TcpIpResult {
             serial: serial.to_string(),
             success: false,
-            message: e.to_string(),
-        },
+            message: output_str.trim().to_string(),
+        }
+    } else {
+        // 其他情况视为成功（有些设备输出比较特殊）
+        TcpIpResult {
+            serial: serial.to_string(),
+            success: true,
+            message: output_str.trim().to_string(),
+        }
     }
 }
 

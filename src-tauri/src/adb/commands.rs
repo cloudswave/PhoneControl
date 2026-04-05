@@ -1,12 +1,13 @@
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 use std::time::Duration;
 use std::path::Path;
 use wait_timeout::ChildExt;
 
 use super::device::server_args;
+use super::{run_adb_command, spawn_adb_command};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+
 pub struct CommandResult {
     pub serial: String,
     pub success: bool,
@@ -25,10 +26,8 @@ fn run_adb_device(host: &str, port: u16, serial: &str, shell_args: &[&str]) -> R
     args.extend(["-s".into(), serial.into(), "shell".into()]);
     args.extend(shell_args.iter().map(|s| s.to_string()));
 
-    let mut child = Command::new("adb")
-        .args(&args)
-        .spawn()
-        .map_err(|e| format!("Failed to spawn adb: {}", e))?;
+    let mut child = spawn_adb_command(&args)
+        .ok_or_else(|| "Failed to spawn adb".to_string())?;
 
     match child
         .wait_timeout(Duration::from_secs(3))
@@ -132,30 +131,18 @@ pub fn install_apk(host: &str, port: u16, serial: &str, apk_path: &str) -> Comma
     args.extend(["-s".into(), serial.into(), "install".into(), "-r".into()]);
     args.push(apk_path.into());
 
-    let output = Command::new("adb")
-        .args(&args)
-        .output();
-
-    match output {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            let message = if out.status.success() {
-                stdout.trim().to_string()
-            } else {
-                format!("{}{}", stdout, stderr).trim().to_string()
-            };
-            CommandResult {
-                serial: serial.to_string(),
-                success: out.status.success(),
-                message,
-            }
-        }
-        Err(e) => CommandResult {
-            serial: serial.to_string(),
-            success: false,
-            message: format!("Failed to execute adb install: {}", e),
-        },
+    let out = run_adb_command(&args);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let message = if out.status.success() {
+        stdout.trim().to_string()
+    } else {
+        format!("{}{}", stdout, stderr).trim().to_string()
+    };
+    CommandResult {
+        serial: serial.to_string(),
+        success: out.status.success(),
+        message,
     }
 }
 
@@ -163,16 +150,17 @@ pub fn wake_up_device(host: &str, port: u16, serial: &str) -> CommandResult {
     let mut check_args = server_args(host, port);
     check_args.extend(["-s".into(), serial.into(), "shell".into(), "dumpsys".into(), "power".into()]);
 
-    let mut child = match Command::new("adb").args(&check_args).spawn() {
-        Ok(child) => child,
-        Err(e) => {
+    let mut child = match spawn_adb_command(&check_args) {
+        Some(c) => c,
+        None => {
             return CommandResult {
                 serial: serial.to_string(),
                 success: false,
-                message: e.to_string(),
+                message: "Failed to spawn adb".to_string(),
             }
         }
     };
+
 
     match child.wait_timeout(Duration::from_secs(3)) {
         Ok(Some(status)) => {
@@ -184,16 +172,7 @@ pub fn wake_up_device(host: &str, port: u16, serial: &str) -> CommandResult {
                 };
             }
 
-            let out = match Command::new("adb").args(&check_args).output() {
-                Ok(out) => out,
-                Err(e) => {
-                    return CommandResult {
-                        serial: serial.to_string(),
-                        success: false,
-                        message: e.to_string(),
-                    }
-                }
-            };
+            let out = run_adb_command(&check_args);
             let output = String::from_utf8_lossy(&out.stdout);
 
             if output.contains("mWakefulness=Asleep") {
