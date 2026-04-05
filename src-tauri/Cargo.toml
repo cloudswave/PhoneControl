@@ -30,4 +30,8 @@ futures = "0.3"
 dirs-next = "2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 wait-timeout = "0.2"
+reqwest = { version = "0.11", features = ["json"] }
+mac_address = "1.1"
+hmac = "0.12"
+sha2 = "0.10"
 

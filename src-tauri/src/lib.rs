@@ -1,6 +1,7 @@
 mod config;
 mod state;
 pub mod adb;
+mod auth;
 
 use state::AppState;
 use adb::server::{AdbServer, poll_all_servers};
@@ -252,6 +253,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
+            auth::verify_authorization,
+            auth::check_authorization_status,
             add_server,
             remove_server,
             toggle_server,

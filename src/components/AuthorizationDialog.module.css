@@ -1,0 +1,95 @@
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dialog {
+  background: white;
+  border-radius: 8px;
+  padding: 32px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.title {
+  font-size: 24px;
+  font-weight: bold;
+  margin: 0 0 16px 0;
+  text-align: center;
+  color: #333;
+}
+
+.description {
+  font-size: 16px;
+  color: #666;
+  margin: 0 0 12px 0;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.hint {
+  font-size: 14px;
+  color: #007acc;
+  margin: 0 0 24px 0;
+  text-align: center;
+  font-weight: 500;
+}
+
+.inputGroup {
+  margin-bottom: 24px;
+}
+
+.input {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid #ddd;
+  border-radius: 4px;
+  font-size: 16px;
+  box-sizing: border-box;
+}
+
+.input:focus {
+  outline: none;
+  border-color: #007acc;
+}
+
+.error {
+  color: #d32f2f;
+  font-size: 14px;
+  margin-top: 8px;
+  text-align: center;
+}
+
+.buttons {
+  display: flex;
+  justify-content: center;
+}
+
+.verifyButton {
+  background: #007acc;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 4px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.verifyButton:hover:not(:disabled) {
+  background: #0056b3;
+}
+
+.verifyButton:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
