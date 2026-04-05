@@ -6,6 +6,7 @@ mod auth;
 use state::AppState;
 use adb::server::{AdbServer, poll_all_servers};
 use adb::commands::{tap, swipe, send_text, keyevent, wake_up_device, CommandResult};
+use adb::scan::{scan_ip_ports, ScanResult};
 use adb::screenshot::{start_screenshot_loop, stop_screenshot_loop};
 use config::{load_servers, save_servers, ServerConfig};
 
@@ -190,6 +191,18 @@ async fn refresh_devices(state: State<'_, AppState>, app: AppHandle) -> Result<(
     Ok(())
 }
 
+// ── Scan devices ─────────────────────────────────────────────────────────────
+
+#[tauri::command]
+async fn scan_adb_devices(
+    host: String,
+    start_port: u16,
+    end_port: u16,
+) -> Result<Vec<ScanResult>, String> {
+    let results = scan_ip_ports(&host, start_port, end_port);
+    Ok(results)
+}
+
 // ── Shell command ─────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -271,6 +284,7 @@ pub fn run() {
             run_shell_devices,
             load_config,
             refresh_devices,
+            scan_adb_devices,
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();

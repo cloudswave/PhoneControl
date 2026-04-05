@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '../../store';
 import type { AdbServer } from '../../types';
+import { ScanDialog } from '../ScanDialog/ScanDialog';
 import styles from './ServerList.module.css';
 
 export function ServerList() {
@@ -10,6 +11,7 @@ export function ServerList() {
   const [host, setHost] = useState('');
   const [port, setPort] = useState('5037');
   const [error, setError] = useState('');
+  const [showScan, setShowScan] = useState(false);
 
   async function addServer() {
     const h = host.trim();
@@ -38,7 +40,12 @@ export function ServerList() {
 
   return (
     <div className={styles.wrap}>
-      <div className={styles.title}>ADB Servers</div>
+      <div className={styles.title}>
+        <span>ADB Servers</span>
+        <button className={styles.scanBtn} onClick={() => setShowScan(true)} title="扫描设备">
+          🔍 扫描
+        </button>
+      </div>
 
       <div className={styles.addRow}>
         <input
@@ -73,6 +80,8 @@ export function ServerList() {
           </div>
         ))}
       </div>
+
+      {showScan && <ScanDialog onClose={() => setShowScan(false)} />}
     </div>
   );
 }

@@ -35,3 +35,10 @@ export interface DeviceResolution {
 export interface AppConfig {
   servers: AdbServer[];
 }
+
+export interface ScanResult {
+  ip: string;
+  port: number;
+  success: boolean;
+  message: string;
+}

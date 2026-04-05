@@ -2,12 +2,32 @@
   padding: 0 12px 16px;
 }
 .title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   margin-bottom: 10px;
+}
+.scanBtn {
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  transition: all 0.15s;
+}
+.scanBtn:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
 .addRow {
   display: flex;
