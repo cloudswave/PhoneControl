@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { useAdbCommands } from '../../hooks/useAdbCommands';
 import { useStore } from '../../store';
-import type { CommandResult } from '../../types';
+import type { CommandResult, TcpIpResult } from '../../types';
 import styles from './Toolbar.module.css';
 
 const KEYS = [
@@ -18,6 +18,8 @@ export function Toolbar() {
   const [text, setText] = useState('');
   const [shellCmd, setShellCmd] = useState('');
   const [shellResults, setShellResults] = useState<CommandResult[] | null>(null);
+  const [tcpipLoading, setTcpipLoading] = useState(false);
+  const [tcpipResults, setTcpipResults] = useState<TcpIpResult[] | null>(null);
   const shellHistoryRef = useRef<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const savedInputRef = useRef('');
@@ -74,8 +76,41 @@ export function Toolbar() {
     }
   }
 
+  async function enableTcpip() {
+    setTcpipLoading(true);
+    setTcpipResults(null);
+    try {
+      const results = await cmds.enableTcpipAll();
+      setTcpipResults(results);
+    } catch (e) {
+      console.error('TCP/IP error:', e);
+    } finally {
+      setTcpipLoading(false);
+    }
+  }
+
   return (
     <div className={styles.toolbarWrap}>
+      {/* TCP/IP results overlay */}
+      {tcpipResults && (
+        <div className={styles.shellResults}>
+          <div className={styles.shellResultsHeader}>
+            <span>TCP/IP Results ({tcpipResults.length} devices)</span>
+            <button className={styles.shellCloseBtn} onClick={() => setTcpipResults(null)}>x</button>
+          </div>
+          <div className={styles.shellResultsList}>
+            {tcpipResults.map((r) => (
+              <div key={r.serial} className={styles.shellResultItem}>
+                <span className={`${styles.shellSerial} ${r.success ? styles.shellOk : styles.shellErr}`}>
+                  {r.serial}
+                </span>
+                <pre className={styles.shellOutput}>{r.message || '(no output)'}</pre>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Shell results overlay */}
       {shellResults && (
         <div className={styles.shellResults}>
@@ -130,6 +165,20 @@ export function Toolbar() {
             Shell
           </button>
         </div>
+
+        {/* Enable TCP/IP button */}
+        <button
+          className={`${styles.tcpipBtn} ${tcpipLoading ? styles.loading : ''}`}
+          onClick={enableTcpip}
+          disabled={tcpipLoading}
+          title="开启网络调试"
+        >
+          {tcpipLoading ? (
+            <span className={styles.spinner}></span>
+          ) : (
+            <span className={styles.tcpipIcon}>📶</span>
+          )}
+        </button>
 
         {mode === 'text' ? (
           <div className={styles.textRow}>

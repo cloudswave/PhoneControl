@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '../store';
-import type { CommandResult, DeviceResolution, Device } from '../types';
+import type { CommandResult, DeviceResolution, Device, TcpIpResult } from '../types';
 
 export function useAdbCommands() {
   return {
@@ -121,6 +121,10 @@ export function useAdbCommands() {
 
     async wakeUpDevices(serials: DeviceResolution[]): Promise<CommandResult[]> {
       return invoke<CommandResult[]>('wake_up_devices', { serials });
+    },
+
+    async enableTcpipAll(): Promise<TcpIpResult[]> {
+      return invoke<TcpIpResult[]>('enable_tcpip_all');
     },
   };
 }

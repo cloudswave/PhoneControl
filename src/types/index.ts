@@ -42,3 +42,9 @@ export interface ScanResult {
   success: boolean;
   message: string;
 }
+
+export interface TcpIpResult {
+  serial: string;
+  success: boolean;
+  message: string;
+}

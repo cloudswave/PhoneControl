@@ -7,6 +7,7 @@ use state::AppState;
 use adb::server::{AdbServer, poll_all_servers};
 use adb::commands::{tap, swipe, send_text, keyevent, wake_up_device, CommandResult};
 use adb::scan::{scan_ip_ports, ScanResult};
+use adb::tcpip::{enable_tcpip_all_usb, TcpIpResult};
 use adb::screenshot::{start_screenshot_loop, stop_screenshot_loop};
 use config::{load_servers, save_servers, ServerConfig};
 
@@ -203,6 +204,14 @@ async fn scan_adb_devices(
     Ok(results)
 }
 
+// ── Enable TCP/IP mode on all USB devices ───────────────────────────────────
+
+#[tauri::command]
+async fn enable_tcpip_all() -> Result<Vec<TcpIpResult>, String> {
+    let results = enable_tcpip_all_usb();
+    Ok(results)
+}
+
 // ── Shell command ─────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -285,6 +294,7 @@ pub fn run() {
             load_config,
             refresh_devices,
             scan_adb_devices,
+            enable_tcpip_all,
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();

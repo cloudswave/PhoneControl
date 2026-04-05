@@ -162,3 +162,40 @@
   word-break: break-all;
   flex: 1;
 }
+
+/* TCP/IP button */
+.tcpipBtn {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  width: 34px;
+  height: 34px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+.tcpipBtn:hover:not(:disabled) {
+  background: var(--bg-primary);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.tcpipBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+.tcpipBtn.loading { pointer-events: none; opacity: 0.7; }
+.tcpipIcon {
+  font-size: 18px;
+  line-height: 1;
+}
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

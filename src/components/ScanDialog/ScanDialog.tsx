@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useStore } from "../../store";
-import type { ScanResult, AdbServer } from "../../types";
+import type { ScanResult } from "../../types";
 import styles from "./ScanDialog.module.css";
 
 const SCAN_STORAGE_KEY = "phonecontrol_scan_config";
@@ -46,8 +45,6 @@ export function ScanDialog({ onClose }: Props) {
   useEffect(() => {
     saveScanConfig(host, startPort, endPort);
   }, [host, startPort, endPort]);
-
-  const setServers = useStore((s) => s.setServers);
 
   async function startScan() {
     if (!host.trim()) {
