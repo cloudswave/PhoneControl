@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useStore } from './store';
 import { useDevices } from './hooks/useDevices';
 import { useScreenshot } from './hooks/useScreenshot';
+import { useStream } from './hooks/useStream';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { DeviceGrid } from './components/DeviceGrid/DeviceGrid';
 import { Toolbar } from './components/Toolbar/Toolbar';
@@ -14,6 +15,7 @@ export default function App() {
 
   useDevices();
   useScreenshot();
+  useStream();
 
   useEffect(() => {
     invoke<AdbServer[]>('load_config').then((servers) => {

@@ -26,6 +26,18 @@ interface AppStore {
   screenshots: Record<string, string>;
   setScreenshot: (serial: string, data: string) => void;
 
+  // Stream status (scrcpy)
+  streamHeartbeats: Record<string, number>;
+  setStreamHeartbeat: (serial: string, bytes: number) => void;
+
+  // Latest frame dimensions per device (set when WebCodecs decodes a frame)
+  streamFrames: Record<string, { width: number; height: number }>;
+  setStreamFrame: (serial: string, width: number, height: number) => void;
+
+  // Stream status
+  streamStatus: Record<string, { status: string; error?: string }>;
+  setStreamStatus: (serial: string, status: string, error?: string) => void;
+
   // FPS
   fps: number;
   setFps: (fps: number) => void;
@@ -80,7 +92,19 @@ export const useStore = create<AppStore>((set) => ({
   setScreenshot: (serial, data) =>
     set((s) => ({ screenshots: { ...s.screenshots, [serial]: data } })),
 
-  fps: 2,
+  streamHeartbeats: {},
+  setStreamHeartbeat: (serial, bytes) =>
+    set((s) => ({ streamHeartbeats: { ...s.streamHeartbeats, [serial]: bytes } })),
+
+  streamFrames: {},
+  setStreamFrame: (serial, width, height) =>
+    set((s) => ({ streamFrames: { ...s.streamFrames, [serial]: { width, height } } })),
+
+  streamStatus: {},
+  setStreamStatus: (serial, status, error) =>
+    set((s) => ({ streamStatus: { ...s.streamStatus, [serial]: { status, error } } })),
+
+  fps: 10,
   setFps: (fps) => set({ fps }),
 
   page: 0,

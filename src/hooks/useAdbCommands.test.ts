@@ -5,7 +5,7 @@ import type { Device } from '../types';
 
 // Mock Tauri invoke
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(),
+  invoke: vi.fn().mockResolvedValue([]),
 }));
 
 const { invoke } = await import('@tauri-apps/api/core');

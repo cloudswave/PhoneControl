@@ -73,48 +73,48 @@ fn fetch_device_info(serial: &str, srv: &AdbServer) -> Device {
     let mut model = String::new();
     let mut battery: i32 = -1;
 
-    // Get screen resolution via `wm size`
+    // Single adb shell call combining all 3 queries, separated by a sentinel.
+    // This reduces 3 sequential process spawns + round-trips to 1.
     {
         let mut args = server_args(&srv.host, srv.port);
-        args.extend(["-s".into(), serial.into(), "shell".into(), "wm".into(), "size".into()]);
-        let output = run_adb_timeout(&args, 5);
-        // Parse "Physical size: 1080x2400" or "Override size: ..."
-        for line in output.lines().rev() {
-            if line.contains("size:") {
-                if let Some(dims) = line.split(':').last() {
-                    let parts: Vec<&str> = dims.trim().split('x').collect();
-                    if parts.len() == 2 {
-                        screen_width = parts[0].trim().parse().unwrap_or(0);
-                        screen_height = parts[1].trim().parse().unwrap_or(0);
-                        break;
+        args.extend([
+            "-s".into(), serial.into(), "shell".into(),
+            "wm size; echo '---DELIM---'; getprop ro.product.model; echo '---DELIM---'; dumpsys battery".into(),
+        ]);
+        let output = run_adb_timeout(&args, 10);
+        let sections: Vec<&str> = output.split("---DELIM---").collect();
+
+        // Section 0: wm size
+        if let Some(wm_output) = sections.first() {
+            for line in wm_output.lines().rev() {
+                if line.contains("size:") {
+                    if let Some(dims) = line.split(':').last() {
+                        let parts: Vec<&str> = dims.trim().split('x').collect();
+                        if parts.len() == 2 {
+                            screen_width = parts[0].trim().parse().unwrap_or(0);
+                            screen_height = parts[1].trim().parse().unwrap_or(0);
+                            break;
+                        }
                     }
                 }
             }
         }
-    }
 
-    // Get model name
-    {
-        let mut args = server_args(&srv.host, srv.port);
-        args.extend(["-s".into(), serial.into(), "shell".into(),
-            "getprop".into(), "ro.product.model".into()]);
-        let output = run_adb_timeout(&args, 5);
-        model = output.trim().to_string();
-    }
+        // Section 1: getprop ro.product.model
+        if let Some(model_output) = sections.get(1) {
+            model = model_output.trim().to_string();
+        }
 
-    // Get battery level
-    {
-        let mut args = server_args(&srv.host, srv.port);
-        args.extend(["-s".into(), serial.into(), "shell".into(),
-            "dumpsys".into(), "battery".into()]);
-        let output = run_adb_timeout(&args, 5);
-        for line in output.lines() {
-            let line = line.trim();
-            if line.starts_with("level:") {
-                battery = line.split(':').last()
-                    .and_then(|v| v.trim().parse().ok())
-                    .unwrap_or(-1);
-                break;
+        // Section 2: dumpsys battery
+        if let Some(battery_output) = sections.get(2) {
+            for line in battery_output.lines() {
+                let line = line.trim();
+                if line.starts_with("level:") {
+                    battery = line.split(':').last()
+                        .and_then(|v| v.trim().parse().ok())
+                        .unwrap_or(-1);
+                    break;
+                }
             }
         }
     }
