@@ -95,80 +95,130 @@ pub async fn start_stream_loop(
         }
     }
 
-    let local_port = super::scrcpy_client::scrcpy_local_port(&serial);
-    let _ = app.emit("stream-status", serde_json::json!({"serial": serial, "status": "starting"}));
+    // Backoff for connection-attempt failures. Stream disconnects retry immediately.
+    // USB-mode switches typically recover in 1-2s, so we start small and cap low.
+    // Progression: 100, 200, 400, 800, 1500 (cap).
+    const BASE_DELAY_MS: u64 = 100;
+    const MAX_DELAY_MS: u64 = 1500;
+    let mut attempt: u32 = 0;
+    let mut first_run = true;
 
-    let serial_clone = serial.clone();
-    let host_clone = host.clone();
-    let scrcpy_conn = match tokio::task::spawn_blocking(move || {
-        super::scrcpy_client::start_scrcpy_and_connect(&serial_clone, &host_clone, port, local_port, &opts)
-    }).await {
-        Ok(Ok(c)) => c,
-        Ok(Err(e)) => {
-            let _ = app.emit("stream-status", serde_json::json!({"serial": serial, "status": "error", "error": e}));
-            let _ = app.emit(
-                "stream-error",
-                serde_json::json!({ "serial": serial, "error": e }),
-            );
-            return;
+    loop {
+        if token.is_cancelled() { break; }
+
+        let local_port = super::scrcpy_client::scrcpy_local_port(&serial);
+
+        // Cleanup from previous iteration
+        control_sockets.lock().unwrap().remove(&serial);
+        let _ = std::process::Command::new("adb")
+            .args(["-s", &serial, "forward", "--remove", &format!("tcp:{}", local_port)])
+            .output();
+
+        let status_label = if first_run { "starting" } else { "reconnecting" };
+        let _ = app.emit("stream-status", serde_json::json!({"serial": serial, "status": status_label}));
+        if !first_run {
+            println!("[STREAM] reconnecting serial={} attempt={}", serial, attempt);
         }
-        Err(e) => {
-            let msg = format!("bootstrap task panicked: {e}");
-            let _ = app.emit("stream-status", serde_json::json!({"serial": serial, "status": "error", "error": msg}));
-            return;
+        first_run = false;
+
+        // Connect to scrcpy server
+        let serial_clone = serial.clone();
+        let host_clone = host.clone();
+        let opts_clone = opts.clone();
+        let conn_result = tokio::task::spawn_blocking(move || {
+            super::scrcpy_client::start_scrcpy_and_connect(&serial_clone, &host_clone, port, local_port, &opts_clone)
+        }).await;
+
+        let scrcpy_conn = match conn_result {
+            Ok(Ok(c)) => {
+                attempt = 0;
+                c
+            }
+            Ok(Err(e)) => {
+                println!("[STREAM] connect failed serial={}: {}", serial, e);
+                let _ = app.emit("stream-status", serde_json::json!({"serial": serial, "status": "reconnecting", "error": e}));
+                attempt += 1;
+                let delay = std::cmp::min(MAX_DELAY_MS, BASE_DELAY_MS * (1u64 << attempt.min(3)));
+                tokio::select! {
+                    _ = token.cancelled() => { break; }
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(delay)) => {}
+                }
+                continue;
+            }
+            Err(e) => {
+                println!("[STREAM] connect task panicked serial={}: {}", serial, e);
+                attempt += 1;
+                let delay = std::cmp::min(MAX_DELAY_MS, BASE_DELAY_MS * (1u64 << attempt.min(3)));
+                tokio::select! {
+                    _ = token.cancelled() => { break; }
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(delay)) => {}
+                }
+                continue;
+            }
+        };
+
+        let _ = app.emit("stream-status", serde_json::json!({"serial": serial, "status": "connected"}));
+        let stdout = scrcpy_conn.stream;
+        let mut server_child = scrcpy_conn.server_child;
+
+        if let Some(ctrl) = scrcpy_conn.control {
+            control_sockets.lock().unwrap().insert(serial.clone(), ControlEntry {
+                stream: ctrl,
+                video_width: 0,
+                video_height: 0,
+            });
         }
-    };
 
-    let _ = app.emit("stream-status", serde_json::json!({"serial": serial, "status": "connected"}));
-    let stdout = scrcpy_conn.stream;
-    let mut server_child = scrcpy_conn.server_child;
-    let _scid = scrcpy_conn.scid;
+        let serial_for_task = serial.clone();
+        let token_for_task = token.clone();
+        let app_for_task = app.clone();
+        let hub = app.state::<WsHub>().inner().clone();
+        let cs_for_task = Arc::clone(&control_sockets);
+        let forward_task = tokio::task::spawn_blocking(move || {
+            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                forward_h264_to_ws(stdout, &serial_for_task, &token_for_task, &app_for_task, &hub, &cs_for_task)
+            }));
 
-    if let Some(ctrl) = scrcpy_conn.control {
-        control_sockets.lock().unwrap().insert(serial.clone(), ControlEntry {
-            stream: ctrl,
-            video_width: 0,
-            video_height: 0,
+            match res {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    let _ = app_for_task.emit(
+                        "stream-error",
+                        serde_json::json!({ "serial": serial_for_task, "error": e }),
+                    );
+                }
+                Err(_) => {
+                    let _ = app_for_task.emit(
+                        "stream-error",
+                        serde_json::json!({ "serial": serial_for_task, "error": "panic in stream forward" }),
+                    );
+                }
+            }
         });
+
+        let cancelled = tokio::select! {
+            _ = token.cancelled() => true,
+            _ = forward_task => {
+                println!("[STREAM] stream disconnected serial={}", serial);
+                false
+            }
+        };
+
+        let _ = server_child.kill();
+        if cancelled { break; }
+
+        // Stream disconnected — retry immediately (no backoff).
+        // Backoff only applies when the *connection attempt* itself fails.
     }
 
-    let serial_for_task = serial.clone();
-    let token_for_task = token.clone();
-    let app_for_task = app.clone();
-    let hub = app.state::<WsHub>().inner().clone();
-    let cs_for_task = Arc::clone(&control_sockets);
-    let forward_task = tokio::task::spawn_blocking(move || {
-        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            forward_h264_to_ws(stdout, &serial_for_task, &token_for_task, &app_for_task, &hub, &cs_for_task)
-        }));
-
-        match res {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => {
-                let _ = app_for_task.emit(
-                    "stream-error",
-                    serde_json::json!({ "serial": serial_for_task, "error": e }),
-                );
-            }
-            Err(_) => {
-                let _ = app_for_task.emit(
-                    "stream-error",
-                    serde_json::json!({ "serial": serial_for_task, "error": "panic in stream forward" }),
-                );
-            }
-        }
-    });
-
-    token.cancelled().await;
-
-    let _ = server_child.kill();
-
+    // Final cleanup
     let local_port = super::scrcpy_client::scrcpy_local_port(&serial);
+    control_sockets.lock().unwrap().remove(&serial);
     let _ = std::process::Command::new("adb")
         .args(["-s", &serial, "forward", "--remove", &format!("tcp:{}", local_port)])
         .output();
-
-    let _ = forward_task.await;
+    tokens.lock().await.remove(&serial);
+    let _ = app.emit("stream-status", serde_json::json!({"serial": serial, "status": "stopped"}));
 }
 
 pub async fn stop_stream_loop(tokens: StreamTokens, control_sockets: ControlSockets, serial: &str) {

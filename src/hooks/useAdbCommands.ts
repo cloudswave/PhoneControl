@@ -5,47 +5,20 @@ import type { CommandResult, DeviceResolution, Device } from '../types';
 export function useAdbCommands() {
   return {
     async tapDevices(x: number, y: number, sourceWidth: number, sourceHeight: number): Promise<CommandResult[]> {
-      const { devices, selectedSerials, streamFrames } = useStore.getState();
-      const onlineDevices = devices
-        .filter((d) => selectedSerials.has(d.serial) && d.status === 'online');
-
-      const results: CommandResult[] = [];
-      const adbFallback: DeviceResolution[] = [];
-
-      for (const d of onlineDevices) {
-        if (streamFrames[d.serial]) {
-          try {
-            const r = await invoke<CommandResult>('scrcpy_tap', {
-              serial: d.serial, x, y, sourceWidth, sourceHeight,
-              targetWidth: d.screen_width, targetHeight: d.screen_height,
-              serverHost: d.server_host, serverPort: d.server_port,
-            });
-            results.push(r);
-            continue;
-          } catch (e) { console.warn('[scrcpy_tap] failed, ADB fallback:', d.serial, e); }
-        }
-        adbFallback.push({ serial: d.serial, width: d.screen_width, height: d.screen_height, server_host: d.server_host, server_port: d.server_port });
-      }
-
-      if (adbFallback.length > 0) {
-        const batch = await invoke<CommandResult[]>('tap_devices', { serials: adbFallback, x, y, sourceWidth, sourceHeight });
-        results.push(...batch);
-      }
-      return results;
+      const { devices, selectedSerials } = useStore.getState();
+      const serials: DeviceResolution[] = devices
+        .filter((d) => selectedSerials.has(d.serial) && d.status === 'online')
+        .map((d) => ({
+          serial: d.serial,
+          width: d.screen_width,
+          height: d.screen_height,
+          server_host: d.server_host,
+          server_port: d.server_port,
+        }));
+      return invoke<CommandResult[]>('tap_devices', { serials, x, y, sourceWidth, sourceHeight });
     },
 
     async tapDevice(device: Device, x: number, y: number, sourceWidth: number, sourceHeight: number): Promise<CommandResult[]> {
-      const { streamFrames } = useStore.getState();
-      if (streamFrames[device.serial]) {
-        try {
-          const r = await invoke<CommandResult>('scrcpy_tap', {
-            serial: device.serial, x, y, sourceWidth, sourceHeight,
-            targetWidth: device.screen_width, targetHeight: device.screen_height,
-            serverHost: device.server_host, serverPort: device.server_port,
-          });
-          return [r];
-        } catch (e) { console.warn('[scrcpy_tap] device failed, ADB fallback:', device.serial, e); }
-      }
       const serials: DeviceResolution[] = [{
         serial: device.serial,
         width: device.screen_width,
@@ -60,34 +33,17 @@ export function useAdbCommands() {
       x1: number, y1: number, x2: number, y2: number,
       durationMs: number, sourceWidth: number, sourceHeight: number
     ): Promise<CommandResult[]> {
-      const { devices, selectedSerials, streamFrames } = useStore.getState();
-      const onlineDevices = devices
-        .filter((d) => selectedSerials.has(d.serial) && d.status === 'online');
-
-      const results: CommandResult[] = [];
-      const adbFallback: DeviceResolution[] = [];
-
-      for (const d of onlineDevices) {
-        if (streamFrames[d.serial]) {
-          try {
-            const r = await invoke<CommandResult>('scrcpy_swipe', {
-              serial: d.serial, x1, y1, x2, y2, durationMs,
-              sourceWidth, sourceHeight,
-              targetWidth: d.screen_width, targetHeight: d.screen_height,
-              serverHost: d.server_host, serverPort: d.server_port,
-            });
-            results.push(r);
-            continue;
-          } catch (e) { console.warn('[scrcpy_swipe] failed, ADB fallback:', d.serial, e); }
-        }
-        adbFallback.push({ serial: d.serial, width: d.screen_width, height: d.screen_height, server_host: d.server_host, server_port: d.server_port });
-      }
-
-      if (adbFallback.length > 0) {
-        const batch = await invoke<CommandResult[]>('swipe_devices', { serials: adbFallback, x1, y1, x2, y2, durationMs, sourceWidth, sourceHeight });
-        results.push(...batch);
-      }
-      return results;
+      const { devices, selectedSerials } = useStore.getState();
+      const serials: DeviceResolution[] = devices
+        .filter((d) => selectedSerials.has(d.serial) && d.status === 'online')
+        .map((d) => ({
+          serial: d.serial,
+          width: d.screen_width,
+          height: d.screen_height,
+          server_host: d.server_host,
+          server_port: d.server_port,
+        }));
+      return invoke<CommandResult[]>('swipe_devices', { serials, x1, y1, x2, y2, durationMs, sourceWidth, sourceHeight });
     },
 
     async swipeDevice(
@@ -95,18 +51,6 @@ export function useAdbCommands() {
       x1: number, y1: number, x2: number, y2: number,
       durationMs: number, sourceWidth: number, sourceHeight: number
     ): Promise<CommandResult[]> {
-      const { streamFrames } = useStore.getState();
-      if (streamFrames[device.serial]) {
-        try {
-          const r = await invoke<CommandResult>('scrcpy_swipe', {
-            serial: device.serial, x1, y1, x2, y2, durationMs,
-            sourceWidth, sourceHeight,
-            targetWidth: device.screen_width, targetHeight: device.screen_height,
-            serverHost: device.server_host, serverPort: device.server_port,
-          });
-          return [r];
-        } catch (e) { console.warn('[scrcpy_swipe] device failed, ADB fallback:', device.serial, e); }
-      }
       const serials: DeviceResolution[] = [{
         serial: device.serial,
         width: device.screen_width,

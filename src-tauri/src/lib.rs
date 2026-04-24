@@ -5,13 +5,14 @@ mod ws;
 
 use state::AppState;
 use adb::server::{AdbServer, poll_all_servers};
-use adb::commands::{tap, swipe, send_text, keyevent, wake_up_device, CommandResult};
+use adb::commands::{send_text, keyevent, wake_up_device, CommandResult};
 use adb::screenshot::{start_screenshot_loop, stop_screenshot_loop};
 use adb::stream::{start_stream_loop, stop_stream_loop, StreamOptions};
 use adb::scrcpy_control;
 use config::{load_servers, save_servers, ServerConfig};
 
 use std::sync::Arc;
+use std::io::Write;
 use tauri::{AppHandle, State, Manager};
 
 use ws::{WsHub, run_ws_server};
@@ -140,16 +141,71 @@ async fn tap_devices(
     y: f64,
     source_width: u32,
     source_height: u32,
+    state: State<'_, AppState>,
 ) -> Result<Vec<CommandResult>, String> {
-    let handles: Vec<_> = serials.into_iter().map(|d| {
-        tokio::task::spawn_blocking(move || {
-            tap(&d.server_host, d.server_port, &d.serial, x, y, source_width, source_height, d.width, d.height)
-        })
-    }).collect();
-    let mut results = Vec::with_capacity(handles.len());
-    for h in handles {
-        results.push(h.await.map_err(|e| e.to_string())?);
-    }
+    println!("[TAP] tap_devices called: {} devices, x={:.1} y={:.1} src={}x{}", serials.len(), x, y, source_width, source_height);
+
+    let control_sockets = Arc::clone(&state.control_sockets);
+
+    let results = tokio::task::spawn_blocking(move || {
+        // Phase 1: collect cloned streams + build payloads under lock
+        let mut jobs: Vec<(String, std::net::TcpStream, [u8; 64])> = Vec::new();
+        let mut no_socket: Vec<String> = Vec::new();
+        {
+            let sockets = control_sockets.lock().unwrap();
+            for d in &serials {
+                if let Some(entry) = sockets.get(&d.serial) {
+                    if entry.video_width > 0 && entry.video_height > 0 {
+                        if let Ok(cloned) = entry.stream.try_clone() {
+                            let down = scrcpy_control::build_touch_msg_scaled(
+                                0, x, y, source_width, source_height, entry.video_width, entry.video_height,
+                            );
+                            let up = scrcpy_control::build_touch_msg_scaled(
+                                1, x, y, source_width, source_height, entry.video_width, entry.video_height,
+                            );
+                            let mut payload = [0u8; 64];
+                            payload[..32].copy_from_slice(&down);
+                            payload[32..].copy_from_slice(&up);
+                            jobs.push((d.serial.clone(), cloned, payload));
+                            continue;
+                        }
+                    }
+                }
+                no_socket.push(d.serial.clone());
+            }
+        } // lock released
+
+        // Phase 2: parallel writes — each thread writes to its own socket
+        let mut results: Vec<CommandResult> = Vec::with_capacity(serials.len());
+        std::thread::scope(|s| {
+            let handles: Vec<_> = jobs.into_iter().map(|(serial, mut stream, payload)| {
+                s.spawn(move || {
+                    let r = stream.write_all(&payload).and_then(|_| stream.flush());
+                    (serial, r)
+                })
+            }).collect();
+            for h in handles {
+                let (serial, r) = h.join().unwrap();
+                match r {
+                    Ok(()) => results.push(CommandResult { serial, success: true, message: String::new() }),
+                    Err(e) => {
+                        println!("[TAP] write failed serial={}: {}", serial, e);
+                        control_sockets.lock().unwrap().remove(&serial);
+                        results.push(CommandResult { serial, success: false, message: e.to_string() });
+                    }
+                }
+            }
+        });
+        for serial in no_socket {
+            results.push(CommandResult { serial, success: false, message: "no control socket".into() });
+        }
+
+        let ok = results.iter().filter(|r| r.success).count();
+        let fail = results.len() - ok;
+        println!("[TAP] done: {} ok, {} failed", ok, fail);
+        results
+    }).await.map_err(|e| e.to_string())?;
+
     Ok(results)
 }
 
@@ -160,16 +216,64 @@ async fn swipe_devices(
     duration_ms: u32,
     source_width: u32,
     source_height: u32,
+    state: State<'_, AppState>,
 ) -> Result<Vec<CommandResult>, String> {
-    let handles: Vec<_> = serials.into_iter().map(|d| {
-        tokio::task::spawn_blocking(move || {
-            swipe(&d.server_host, d.server_port, &d.serial, x1, y1, x2, y2, duration_ms, source_width, source_height, d.width, d.height)
-        })
-    }).collect();
-    let mut results = Vec::with_capacity(handles.len());
-    for h in handles {
-        results.push(h.await.map_err(|e| e.to_string())?);
-    }
+    println!("[SWIPE] swipe_devices called: {} devices, dur={}ms", serials.len(), duration_ms);
+    let control_sockets = Arc::clone(&state.control_sockets);
+
+    let results = tokio::task::spawn_blocking(move || {
+        // Phase 1: clone streams and collect video dimensions under lock
+        let mut jobs: Vec<(String, std::net::TcpStream, u32, u32)> = Vec::new();
+        let mut no_socket: Vec<String> = Vec::new();
+        {
+            let sockets = control_sockets.lock().unwrap();
+            for d in &serials {
+                if let Some(entry) = sockets.get(&d.serial) {
+                    if entry.video_width > 0 && entry.video_height > 0 {
+                        if let Ok(cloned) = entry.stream.try_clone() {
+                            jobs.push((d.serial.clone(), cloned, entry.video_width, entry.video_height));
+                            continue;
+                        }
+                    }
+                }
+                no_socket.push(d.serial.clone());
+            }
+        } // lock released
+
+        // Phase 2: parallel swipes — each thread runs full inject_swipe on its own stream
+        let mut results: Vec<CommandResult> = Vec::with_capacity(serials.len());
+        std::thread::scope(|s| {
+            let handles: Vec<_> = jobs.into_iter().map(|(serial, mut stream, vw, vh)| {
+                s.spawn(move || {
+                    let r = scrcpy_control::inject_swipe(
+                        &mut stream, x1, y1, x2, y2, duration_ms,
+                        source_width, source_height, vw, vh,
+                    );
+                    (serial, r)
+                })
+            }).collect();
+            for h in handles {
+                let (serial, r) = h.join().unwrap();
+                match r {
+                    Ok(()) => results.push(CommandResult { serial, success: true, message: String::new() }),
+                    Err(e) => {
+                        println!("[SWIPE] write failed serial={}: {}", serial, e);
+                        control_sockets.lock().unwrap().remove(&serial);
+                        results.push(CommandResult { serial, success: false, message: e.to_string() });
+                    }
+                }
+            }
+        });
+        for serial in no_socket {
+            results.push(CommandResult { serial, success: false, message: "no control socket".into() });
+        }
+
+        let ok = results.iter().filter(|r| r.success).count();
+        let fail = results.len() - ok;
+        println!("[SWIPE] done: {} ok, {} failed", ok, fail);
+        results
+    }).await.map_err(|e| e.to_string())?;
+
     Ok(results)
 }
 
@@ -251,15 +355,14 @@ async fn scrcpy_tap(
                 return Ok(CommandResult { serial, success: true, message: String::new() });
             }
             Err(e) => {
-                println!("[SCRCPY-CTRL] tap failed serial={}: {}, falling back to ADB", serial, e);
+                println!("[SCRCPY-CTRL] tap failed serial={}: {}", serial, e);
                 sockets.remove(&serial);
             }
         }
     } else {
-        println!("[SCRCPY-CTRL] no control socket for serial={}, using ADB", serial);
+        println!("[SCRCPY-CTRL] no control socket for serial={}", serial);
     }
-    drop(sockets);
-    Ok(tap(&server_host, server_port, &serial, x, y, source_width, source_height, target_width, target_height))
+    Ok(CommandResult { serial, success: false, message: "no control socket".into() })
 }
 
 #[tauri::command]
@@ -286,13 +389,12 @@ async fn scrcpy_swipe(
         match scrcpy_control::inject_swipe(&mut entry.stream, x1, y1, x2, y2, duration_ms, source_width, source_height, vw, vh) {
             Ok(()) => return Ok(CommandResult { serial, success: true, message: String::new() }),
             Err(e) => {
-                println!("[SCRCPY-CTRL] swipe failed serial={}: {}, falling back to ADB", serial, e);
+                println!("[SCRCPY-CTRL] swipe failed serial={}: {}", serial, e);
                 sockets.remove(&serial);
             }
         }
     }
-    drop(sockets);
-    Ok(swipe(&server_host, server_port, &serial, x1, y1, x2, y2, duration_ms, source_width, source_height, target_width, target_height))
+    Ok(CommandResult { serial, success: false, message: "no control socket".into() })
 }
 
 // ── scrcpy ───────────────────────────────────────────────────────────────────

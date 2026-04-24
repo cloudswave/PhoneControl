@@ -37,6 +37,21 @@ fn scale(value: f64, source_dim: u32, target_dim: u32) -> i32 {
     ((value / source_dim as f64) * target_dim as f64).round() as i32
 }
 
+pub fn build_touch_msg_scaled(
+    action: u8,
+    x: f64,
+    y: f64,
+    source_w: u32,
+    source_h: u32,
+    target_w: u32,
+    target_h: u32,
+) -> [u8; 32] {
+    let tx = scale(x, source_w, target_w);
+    let ty = scale(y, source_h, target_h);
+    let pressure = if action == ACTION_UP { 0 } else { PRESSURE_MAX };
+    build_touch_msg(action, tx, ty, target_w as u16, target_h as u16, pressure)
+}
+
 pub fn inject_tap(
     stream: &mut TcpStream,
     x: f64,

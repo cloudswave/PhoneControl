@@ -327,7 +327,7 @@ pub fn start_scrcpy_and_connect(
     }
 
     // Give the process a short moment to fail fast and emit logs.
-    std::thread::sleep(Duration::from_millis(200));
+    std::thread::sleep(Duration::from_millis(100));
 
     // 3) Set up the forward tunnel.
     //
@@ -379,7 +379,7 @@ pub fn start_scrcpy_and_connect(
         loop {
             match TcpStream::connect(&addr) {
                 Ok(s) => {
-                    s.set_read_timeout(Some(Duration::from_millis(500))).ok();
+                    s.set_read_timeout(Some(Duration::from_millis(300))).ok();
                     let mut peek = [0u8; 1];
                     match s.peek(&mut peek) {
                         Ok(0) => {
@@ -401,21 +401,21 @@ pub fn start_scrcpy_and_connect(
                     last_err = Some(e.to_string());
                 }
             }
-            if start.elapsed() > Duration::from_secs(8) {
+            if start.elapsed() > Duration::from_secs(3) {
                 let _ = server_child.kill();
                 return Err(format!(
                     "tcp connect failed after retries: {}",
                     last_err.unwrap_or_else(|| "unknown".into())
                 ));
             }
-            std::thread::sleep(Duration::from_millis(300));
+            std::thread::sleep(Duration::from_millis(100));
         }
     };
 
     println!("[SCRCPY] tcp connected serial={} local_port={}", serial, local_port);
 
     stream.set_nodelay(true).ok();
-    stream.set_read_timeout(Some(Duration::from_secs(3))).ok();
+    stream.set_read_timeout(Some(Duration::from_millis(500))).ok();
 
     // 5) Connect control socket (second accept on the same abstract socket).
     //
@@ -423,7 +423,7 @@ pub fn start_scrcpy_and_connect(
     // after the video accept. Give it a moment to set up the accept before
     // we connect — racing the server can cause the TCP connect to succeed
     // at the adb-forward layer without actually reaching the device.
-    std::thread::sleep(Duration::from_millis(300));
+    std::thread::sleep(Duration::from_millis(100));
     println!("[SCRCPY] attempting control socket connect serial={} addr={}", serial, addr);
     let control = {
         let mut last_err: Option<String> = None;
@@ -454,14 +454,14 @@ pub fn start_scrcpy_and_connect(
                     last_err = Some(e.to_string());
                 }
             }
-            if start.elapsed() > Duration::from_secs(5) {
+            if start.elapsed() > Duration::from_secs(3) {
                 println!(
                     "[SCRCPY] control socket failed serial={}: {} (video-only mode)",
                     serial, last_err.unwrap_or_else(|| "unknown".into())
                 );
                 break;
             }
-            std::thread::sleep(Duration::from_millis(200));
+            std::thread::sleep(Duration::from_millis(100));
         }
         ctrl
     };
@@ -476,6 +476,13 @@ pub fn start_scrcpy_and_connect(
             serial, local, peer
         );
     }
+
+    // Remove the forward listener now that both connections are established.
+    // The existing TCP connections (video + control) survive because they are
+    // independent asocket pairs inside the ADB daemon. Removing the listener
+    // reduces ADB daemon state and prevents new spurious connections.
+    adb_remove_forward(server_host, server_port, serial, local_port);
+    println!("[SCRCPY] forward listener removed serial={} (connections kept)", serial);
 
     Ok(ScrcpyConnection {
         serial: serial.to_string(),

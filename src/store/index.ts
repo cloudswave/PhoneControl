@@ -42,6 +42,10 @@ interface AppStore {
   fps: number;
   setFps: (fps: number) => void;
 
+  // Sidebar
+  sidebarCollapsed: boolean;
+  toggleSidebar: () => void;
+
   // Pagination
   page: number;
   pageSize: number;
@@ -106,6 +110,9 @@ export const useStore = create<AppStore>((set) => ({
 
   fps: 10,
   setFps: (fps) => set({ fps }),
+
+  sidebarCollapsed: false,
+  toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
 
   page: 0,
   pageSize: PAGE_SIZE,
