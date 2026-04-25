@@ -5,10 +5,10 @@ import { useAdbCommands } from '../../hooks/useAdbCommands';
 import { DeviceCard } from './DeviceCard';
 import styles from './DeviceGrid.module.css';
 
-const CARD_BASE_WIDTH = 200;
-const SCREEN_BASE_HEIGHT = 356; // only the screen area scales
-const FIXED_HEADER_HEIGHT = 33; // header: padding + font (fixed px)
-const FIXED_FOOTER_HEIGHT = 30; // footer: padding + font (fixed px)
+const SCREEN_ASPECT = 9 / 20; // typical phone width:height
+const SCREEN_BASE_HEIGHT = 356;
+const FIXED_HEADER_HEIGHT = 33;
+const FIXED_FOOTER_HEIGHT = 30;
 const GRID_GAP = 10;
 const GRID_PADDING = 12;
 
@@ -28,18 +28,22 @@ function useAutoScale(
     const availH = rect.height - GRID_PADDING * 2;
     if (availW <= 0 || availH <= 0) return;
 
-    // Try different column counts, pick the one that uses the largest scale while fitting.
+    // Try different column counts, pick the one that uses the largest scale
+    // while fitting all cards without overflow.
+    // Card width = SCREEN_BASE_HEIGHT * scale * SCREEN_ASPECT
     // Card height = FIXED_HEADER_HEIGHT + SCREEN_BASE_HEIGHT * scale + FIXED_FOOTER_HEIGHT
-    // Header & footer use fixed px sizes, only the screen area scales.
     let best = 0;
     for (let cols = 1; cols <= count; cols++) {
       const rows = Math.ceil(count / cols);
       const maxCardW = (availW - GRID_GAP * (cols - 1)) / cols;
       const maxCardH = (availH - GRID_GAP * (rows - 1)) / rows;
-      const sx = maxCardW / CARD_BASE_WIDTH;
-      const sy = (maxCardH - FIXED_HEADER_HEIGHT - FIXED_FOOTER_HEIGHT) / SCREEN_BASE_HEIGHT;
-      if (sy <= 0) continue; // not enough room for even header+footer
-      const s = Math.min(sx, sy);
+      // Screen height limited by card width (via aspect ratio)
+      const maxScreenFromW = maxCardW / SCREEN_ASPECT;
+      // Screen height limited by card height (minus fixed header/footer)
+      const maxScreenFromH = maxCardH - FIXED_HEADER_HEIGHT - FIXED_FOOTER_HEIGHT;
+      const screenH = Math.min(maxScreenFromW, maxScreenFromH);
+      if (screenH <= 0) continue;
+      const s = screenH / SCREEN_BASE_HEIGHT;
       if (s > best) best = s;
     }
     setScale(Math.max(best, 0.1));
@@ -91,19 +95,19 @@ export function DeviceGrid() {
     // Stop preview for devices no longer on current page
     for (const serial of prev) {
       if (!currentSerials.has(serial)) {
-        invoke('stop_preview', { serial }).catch(() => {});
+        invoke('stop_stream', { serial }).catch(() => {});
       }
     }
 
     const newDevices = currentOnlineDevices.filter((d) => !prev.has(d.serial));
 
-    // Start preview for new devices on current page
+    // Start stream for new devices on current page
     for (const d of newDevices) {
-      invoke('start_preview', {
+      invoke('start_stream', {
         serial: d.serial,
-        fps,
         serverHost: d.server_host,
         serverPort: d.server_port,
+        options: { max_size: 720, max_fps: fps, bit_rate: 4_000_000 },
       }).catch(() => {});
     }
 
@@ -133,9 +137,14 @@ export function DeviceGrid() {
     );
   }
 
+  const screenH = SCREEN_BASE_HEIGHT * scale;
+  const cardW = Math.round(screenH * SCREEN_ASPECT);
+  const cardTotalH = FIXED_HEADER_HEIGHT + screenH + FIXED_FOOTER_HEIGHT;
+
   const cardStyle = {
-    '--card-width': `${CARD_BASE_WIDTH * scale}px`,
-    '--card-height': `${SCREEN_BASE_HEIGHT * scale}px`,
+    '--card-width': `${cardW}px`,
+    '--card-height': `${screenH}px`,
+    '--card-total-height': `${cardTotalH}px`,
     fontSize: `${scale * 100}%`,
   } as React.CSSProperties;
 
@@ -143,7 +152,7 @@ export function DeviceGrid() {
     <div className={styles.wrapper}>
       <div
         ref={gridRef}
-        className={`${styles.grid} ${styles.gridOverview}`}
+        className={`${styles.grid} ${overviewMode ? styles.gridOverview : ''}`}
       >
         {pageDevices.map((device) => (
           <div key={device.serial} style={cardStyle}>

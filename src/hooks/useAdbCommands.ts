@@ -101,6 +101,24 @@ export function useAdbCommands() {
       return invoke<void>('set_fps', { serial, fps, serverHost, serverPort });
     },
 
+    startStream(
+      serial: string,
+      serverHost: string,
+      serverPort: number,
+      options?: { max_size: number; max_fps: number; bit_rate: number }
+    ) {
+      return invoke<void>('start_stream', {
+        serial,
+        serverHost,
+        serverPort,
+        options: options ?? { max_size: 720, max_fps: 30, bit_rate: 4_000_000 },
+      });
+    },
+
+    stopStream(serial: string) {
+      return invoke<void>('stop_stream', { serial });
+    },
+
     launchScrcpy(serial: string, serverHost: string, serverPort: number) {
       return invoke<void>('launch_scrcpy', { serial, serverHost, serverPort });
     },

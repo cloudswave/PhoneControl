@@ -1,6 +1,7 @@
 mod config;
 mod state;
 pub mod adb;
+
 mod auth;
 
 use state::AppState;
@@ -8,11 +9,21 @@ use adb::server::{AdbServer, poll_all_servers};
 use adb::commands::{tap, swipe, send_text, keyevent, wake_up_device, install_apk, CommandResult};
 use adb::scan::{scan_ip_ports, ScanResult};
 use adb::tcpip::{enable_tcpip_all_usb, TcpIpResult};
+mod ws;
+
+use state::AppState;
+use adb::server::{AdbServer, poll_all_servers};
+use adb::commands::{send_text, keyevent, wake_up_device, CommandResult};
 use adb::screenshot::{start_screenshot_loop, stop_screenshot_loop};
+use adb::stream::{start_stream_loop, stop_stream_loop, StreamOptions};
+use adb::scrcpy_control;
 use config::{load_servers, save_servers, ServerConfig};
 
 use std::sync::Arc;
+use std::io::Write;
 use tauri::{AppHandle, State, Manager};
+
+use ws::{WsHub, run_ws_server};
 
 // ── Server management ────────────────────────────────────────────────────────
 
@@ -87,6 +98,31 @@ async fn stop_preview(serial: String, state: State<'_, AppState>) -> Result<(), 
     Ok(())
 }
 
+// ── Stream preview (scrcpy) ─────────────────────────────────────────────────
+
+#[tauri::command]
+async fn start_stream(
+    serial: String,
+    server_host: String,
+    server_port: u16,
+    options: Option<StreamOptions>,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    println!("[CMD] start_stream serial={} server={}:{}", serial, server_host, server_port);
+    let tokens = Arc::clone(&state.stream_tokens);
+    let control_sockets = Arc::clone(&state.control_sockets);
+    let opts = options.unwrap_or_default();
+    tauri::async_runtime::spawn(start_stream_loop(tokens, control_sockets, serial, server_host, server_port, opts, app));
+    Ok(())
+}
+
+#[tauri::command]
+async fn stop_stream(serial: String, state: State<'_, AppState>) -> Result<(), String> {
+    stop_stream_loop(Arc::clone(&state.stream_tokens), Arc::clone(&state.control_sockets), &serial).await;
+    Ok(())
+}
+
 #[tauri::command]
 async fn set_fps(serial: String, fps: u32, server_host: String, server_port: u16, state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
     stop_screenshot_loop(Arc::clone(&state.screenshot_tokens), &serial).await;
@@ -113,10 +149,71 @@ async fn tap_devices(
     y: f64,
     source_width: u32,
     source_height: u32,
+    state: State<'_, AppState>,
 ) -> Result<Vec<CommandResult>, String> {
-    let results = serials.iter().map(|d| {
-        tap(&d.server_host, d.server_port, &d.serial, x, y, source_width, source_height, d.width, d.height)
-    }).collect();
+    println!("[TAP] tap_devices called: {} devices, x={:.1} y={:.1} src={}x{}", serials.len(), x, y, source_width, source_height);
+
+    let control_sockets = Arc::clone(&state.control_sockets);
+
+    let results = tokio::task::spawn_blocking(move || {
+        // Phase 1: collect cloned streams + build payloads under lock
+        let mut jobs: Vec<(String, std::net::TcpStream, [u8; 64])> = Vec::new();
+        let mut no_socket: Vec<String> = Vec::new();
+        {
+            let sockets = control_sockets.lock().unwrap();
+            for d in &serials {
+                if let Some(entry) = sockets.get(&d.serial) {
+                    if entry.video_width > 0 && entry.video_height > 0 {
+                        if let Ok(cloned) = entry.stream.try_clone() {
+                            let down = scrcpy_control::build_touch_msg_scaled(
+                                0, x, y, source_width, source_height, entry.video_width, entry.video_height,
+                            );
+                            let up = scrcpy_control::build_touch_msg_scaled(
+                                1, x, y, source_width, source_height, entry.video_width, entry.video_height,
+                            );
+                            let mut payload = [0u8; 64];
+                            payload[..32].copy_from_slice(&down);
+                            payload[32..].copy_from_slice(&up);
+                            jobs.push((d.serial.clone(), cloned, payload));
+                            continue;
+                        }
+                    }
+                }
+                no_socket.push(d.serial.clone());
+            }
+        } // lock released
+
+        // Phase 2: parallel writes — each thread writes to its own socket
+        let mut results: Vec<CommandResult> = Vec::with_capacity(serials.len());
+        std::thread::scope(|s| {
+            let handles: Vec<_> = jobs.into_iter().map(|(serial, mut stream, payload)| {
+                s.spawn(move || {
+                    let r = stream.write_all(&payload).and_then(|_| stream.flush());
+                    (serial, r)
+                })
+            }).collect();
+            for h in handles {
+                let (serial, r) = h.join().unwrap();
+                match r {
+                    Ok(()) => results.push(CommandResult { serial, success: true, message: String::new() }),
+                    Err(e) => {
+                        println!("[TAP] write failed serial={}: {}", serial, e);
+                        control_sockets.lock().unwrap().remove(&serial);
+                        results.push(CommandResult { serial, success: false, message: e.to_string() });
+                    }
+                }
+            }
+        });
+        for serial in no_socket {
+            results.push(CommandResult { serial, success: false, message: "no control socket".into() });
+        }
+
+        let ok = results.iter().filter(|r| r.success).count();
+        let fail = results.len() - ok;
+        println!("[TAP] done: {} ok, {} failed", ok, fail);
+        results
+    }).await.map_err(|e| e.to_string())?;
+
     Ok(results)
 }
 
@@ -127,10 +224,64 @@ async fn swipe_devices(
     duration_ms: u32,
     source_width: u32,
     source_height: u32,
+    state: State<'_, AppState>,
 ) -> Result<Vec<CommandResult>, String> {
-    let results = serials.iter().map(|d| {
-        swipe(&d.server_host, d.server_port, &d.serial, x1, y1, x2, y2, duration_ms, source_width, source_height, d.width, d.height)
-    }).collect();
+    println!("[SWIPE] swipe_devices called: {} devices, dur={}ms", serials.len(), duration_ms);
+    let control_sockets = Arc::clone(&state.control_sockets);
+
+    let results = tokio::task::spawn_blocking(move || {
+        // Phase 1: clone streams and collect video dimensions under lock
+        let mut jobs: Vec<(String, std::net::TcpStream, u32, u32)> = Vec::new();
+        let mut no_socket: Vec<String> = Vec::new();
+        {
+            let sockets = control_sockets.lock().unwrap();
+            for d in &serials {
+                if let Some(entry) = sockets.get(&d.serial) {
+                    if entry.video_width > 0 && entry.video_height > 0 {
+                        if let Ok(cloned) = entry.stream.try_clone() {
+                            jobs.push((d.serial.clone(), cloned, entry.video_width, entry.video_height));
+                            continue;
+                        }
+                    }
+                }
+                no_socket.push(d.serial.clone());
+            }
+        } // lock released
+
+        // Phase 2: parallel swipes — each thread runs full inject_swipe on its own stream
+        let mut results: Vec<CommandResult> = Vec::with_capacity(serials.len());
+        std::thread::scope(|s| {
+            let handles: Vec<_> = jobs.into_iter().map(|(serial, mut stream, vw, vh)| {
+                s.spawn(move || {
+                    let r = scrcpy_control::inject_swipe(
+                        &mut stream, x1, y1, x2, y2, duration_ms,
+                        source_width, source_height, vw, vh,
+                    );
+                    (serial, r)
+                })
+            }).collect();
+            for h in handles {
+                let (serial, r) = h.join().unwrap();
+                match r {
+                    Ok(()) => results.push(CommandResult { serial, success: true, message: String::new() }),
+                    Err(e) => {
+                        println!("[SWIPE] write failed serial={}: {}", serial, e);
+                        control_sockets.lock().unwrap().remove(&serial);
+                        results.push(CommandResult { serial, success: false, message: e.to_string() });
+                    }
+                }
+            }
+        });
+        for serial in no_socket {
+            results.push(CommandResult { serial, success: false, message: "no control socket".into() });
+        }
+
+        let ok = results.iter().filter(|r| r.success).count();
+        let fail = results.len() - ok;
+        println!("[SWIPE] done: {} ok, {} failed", ok, fail);
+        results
+    }).await.map_err(|e| e.to_string())?;
+
     Ok(results)
 }
 
@@ -139,9 +290,16 @@ async fn send_text_devices(
     serials: Vec<DeviceResolution>,
     text: String,
 ) -> Result<Vec<CommandResult>, String> {
-    let results = serials.iter().map(|d| {
-        send_text(&d.server_host, d.server_port, &d.serial, &text)
+    let handles: Vec<_> = serials.into_iter().map(|d| {
+        let text = text.clone();
+        tokio::task::spawn_blocking(move || {
+            send_text(&d.server_host, d.server_port, &d.serial, &text)
+        })
     }).collect();
+    let mut results = Vec::with_capacity(handles.len());
+    for h in handles {
+        results.push(h.await.map_err(|e| e.to_string())?);
+    }
     Ok(results)
 }
 
@@ -150,9 +308,15 @@ async fn keyevent_devices(
     serials: Vec<DeviceResolution>,
     keycode: u32,
 ) -> Result<Vec<CommandResult>, String> {
-    let results = serials.iter().map(|d| {
-        keyevent(&d.server_host, d.server_port, &d.serial, keycode)
+    let handles: Vec<_> = serials.into_iter().map(|d| {
+        tokio::task::spawn_blocking(move || {
+            keyevent(&d.server_host, d.server_port, &d.serial, keycode)
+        })
     }).collect();
+    let mut results = Vec::with_capacity(handles.len());
+    for h in handles {
+        results.push(h.await.map_err(|e| e.to_string())?);
+    }
     Ok(results)
 }
 
@@ -160,11 +324,18 @@ async fn keyevent_devices(
 async fn wake_up_devices(
     serials: Vec<DeviceResolution>,
 ) -> Result<Vec<CommandResult>, String> {
-    let results = serials.iter().map(|d| {
-        wake_up_device(&d.server_host, d.server_port, &d.serial)
+    let handles: Vec<_> = serials.into_iter().map(|d| {
+        tokio::task::spawn_blocking(move || {
+            wake_up_device(&d.server_host, d.server_port, &d.serial)
+        })
     }).collect();
+    let mut results = Vec::with_capacity(handles.len());
+    for h in handles {
+        results.push(h.await.map_err(|e| e.to_string())?);
+    }
     Ok(results)
 }
+
 
 #[tauri::command]
 async fn install_apk_devices(
@@ -175,6 +346,73 @@ async fn install_apk_devices(
         install_apk(&d.server_host, d.server_port, &d.serial, &apk_path)
     }).collect();
     Ok(results)
+// ── scrcpy control ───────────────────────────────────────────────────────────
+
+#[tauri::command]
+async fn scrcpy_tap(
+    serial: String,
+    x: f64,
+    y: f64,
+    source_width: u32,
+    source_height: u32,
+    target_width: u32,
+    target_height: u32,
+    server_host: String,
+    server_port: u16,
+    state: State<'_, AppState>,
+) -> Result<CommandResult, String> {
+    println!("[SCRCPY-CTRL] tap serial={} x={:.1} y={:.1} src={}x{} tgt={}x{}", serial, x, y, source_width, source_height, target_width, target_height);
+    let mut sockets = state.control_sockets.lock().unwrap();
+    if let Some(entry) = sockets.get_mut(&serial) {
+        let vw = entry.video_width;
+        let vh = entry.video_height;
+        println!("[SCRCPY-CTRL] using video dimensions {}x{} (instead of device {}x{})", vw, vh, target_width, target_height);
+        match scrcpy_control::inject_tap(&mut entry.stream, x, y, source_width, source_height, vw, vh) {
+            Ok(()) => {
+                println!("[SCRCPY-CTRL] tap OK serial={}", serial);
+                return Ok(CommandResult { serial, success: true, message: String::new() });
+            }
+            Err(e) => {
+                println!("[SCRCPY-CTRL] tap failed serial={}: {}", serial, e);
+                sockets.remove(&serial);
+            }
+        }
+    } else {
+        println!("[SCRCPY-CTRL] no control socket for serial={}", serial);
+    }
+    Ok(CommandResult { serial, success: false, message: "no control socket".into() })
+}
+
+#[tauri::command]
+async fn scrcpy_swipe(
+    serial: String,
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
+    duration_ms: u32,
+    source_width: u32,
+    source_height: u32,
+    target_width: u32,
+    target_height: u32,
+    server_host: String,
+    server_port: u16,
+    state: State<'_, AppState>,
+) -> Result<CommandResult, String> {
+    println!("[SCRCPY-CTRL] swipe serial={} ({:.0},{:.0})->({:.0},{:.0}) dur={}ms", serial, x1, y1, x2, y2, duration_ms);
+    let mut sockets = state.control_sockets.lock().unwrap();
+    if let Some(entry) = sockets.get_mut(&serial) {
+        let vw = entry.video_width;
+        let vh = entry.video_height;
+        match scrcpy_control::inject_swipe(&mut entry.stream, x1, y1, x2, y2, duration_ms, source_width, source_height, vw, vh) {
+            Ok(()) => return Ok(CommandResult { serial, success: true, message: String::new() }),
+            Err(e) => {
+                println!("[SCRCPY-CTRL] swipe failed serial={}: {}", serial, e);
+                sockets.remove(&serial);
+            }
+        }
+    }
+    Ok(CommandResult { serial, success: false, message: "no control socket".into() })
 }
 
 // ── scrcpy ───────────────────────────────────────────────────────────────────
@@ -231,6 +469,7 @@ async fn run_shell_devices(
     cmd: String,
 ) -> Result<Vec<CommandResult>, String> {
     use adb::device::server_args;
+
     use adb::run_adb_command;
     
     let results: Vec<CommandResult> = serials.iter().map(|d| {
@@ -248,7 +487,34 @@ async fn run_shell_devices(
             success: out.status.success(),
             message,
         }
+    let handles: Vec<_> = serials.into_iter().map(|d| {
+        let cmd = cmd.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut args = server_args(&d.server_host, d.server_port);
+            args.extend(["-s".into(), d.serial.clone(), "shell".into()]);
+            args.extend(cmd.split_whitespace().map(String::from));
+            let out = std::process::Command::new("adb")
+                .args(&args)
+                .output();
+            match out {
+                Ok(o) => CommandResult {
+                    serial: d.serial.clone(),
+                    success: o.status.success(),
+                    message: String::from_utf8_lossy(&o.stdout).to_string()
+                        + &String::from_utf8_lossy(&o.stderr),
+                },
+                Err(e) => CommandResult {
+                    serial: d.serial.clone(),
+                    success: false,
+                    message: e.to_string(),
+                },
+            }
+        })
     }).collect();
+    let mut results = Vec::with_capacity(handles.len());
+    for h in handles {
+        results.push(h.await.map_err(|e| e.to_string())?);
+    }
     Ok(results)
 }
 
@@ -280,10 +546,13 @@ pub fn run() {
     let servers: Vec<AdbServer> = servers_cfg.iter().map(AdbServer::from_config).collect();
     let app_state = AppState::new(servers);
 
+    let ws_hub = WsHub::default();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(app_state)
+        .manage(ws_hub)
         .invoke_handler(tauri::generate_handler![
             auth::verify_authorization,
             auth::check_authorization_status,
@@ -294,8 +563,12 @@ pub fn run() {
             start_preview,
             stop_preview,
             set_fps,
+            start_stream,
+            stop_stream,
             tap_devices,
             swipe_devices,
+            scrcpy_tap,
+            scrcpy_swipe,
             send_text_devices,
             keyevent_devices,
             wake_up_devices,
@@ -311,6 +584,13 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let state = app.state::<AppState>();
             let servers = Arc::clone(&state.servers);
+
+            // Start local WS server for high-frequency frames
+            let hub = app.state::<WsHub>().inner().clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = run_ws_server(hub, "127.0.0.1:32199".parse().unwrap()).await;
+            });
+
             tauri::async_runtime::spawn(async move {
                 loop {
                     poll_all_servers(Arc::clone(&servers), app_handle.clone()).await;

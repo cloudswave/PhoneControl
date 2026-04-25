@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "./store";
@@ -9,6 +10,17 @@ import { Toolbar } from "./components/Toolbar/Toolbar";
 import { AuthorizationDialog } from "./components/AuthorizationDialog";
 import type { AdbServer } from "./types";
 import styles from "./App.module.css";
+import { useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { useStore } from './store';
+import { useDevices } from './hooks/useDevices';
+import { useScreenshot } from './hooks/useScreenshot';
+import { useStream } from './hooks/useStream';
+import { Sidebar } from './components/Sidebar/Sidebar';
+import { DeviceGrid } from './components/DeviceGrid/DeviceGrid';
+import { Toolbar } from './components/Toolbar/Toolbar';
+import type { AdbServer } from './types';
+import styles from './App.module.css';
 
 export default function App() {
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
@@ -16,6 +28,7 @@ export default function App() {
 
   useDevices();
   useScreenshot();
+  useStream();
 
   useEffect(() => {
     // 检查授权状态

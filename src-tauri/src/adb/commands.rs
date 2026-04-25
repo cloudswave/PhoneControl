@@ -26,24 +26,46 @@ fn run_adb_device(host: &str, port: u16, serial: &str, shell_args: &[&str]) -> R
     args.extend(["-s".into(), serial.into(), "shell".into()]);
     args.extend(shell_args.iter().map(|s| s.to_string()));
 
+
     let mut child = spawn_adb_command(&args)
         .ok_or_else(|| "Failed to spawn adb".to_string())?;
+    let start = std::time::Instant::now();
+    let mut child = Command::new("adb")
+        .args(&args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn adb: {}", e))?;
 
     match child
         .wait_timeout(Duration::from_secs(3))
         .map_err(|e| format!("Timeout handling error: {}", e))?
     {
         Some(status) => {
+            let stdout = child.stdout.take().map(|mut s| {
+                let mut buf = String::new();
+                std::io::Read::read_to_string(&mut s, &mut buf).ok();
+                buf
+            }).unwrap_or_default();
+            let stderr = child.stderr.take().map(|mut s| {
+                let mut buf = String::new();
+                std::io::Read::read_to_string(&mut s, &mut buf).ok();
+                buf
+            }).unwrap_or_default();
+            if !stdout.trim().is_empty() || !stderr.trim().is_empty() {
+                println!("[ADB] serial={} status={} out={:?} err={:?} ({:.0}ms)",
+                    serial, status, stdout.trim(), stderr.trim(), start.elapsed().as_millis());
+            }
             if status.success() {
                 Ok(())
             } else {
-                Err(format!("ADB command failed with status: {}", status))
+                Err(format!("ADB command failed: status={} err={} ({:.0}ms)", status, stderr.trim(), start.elapsed().as_millis()))
             }
         }
         None => {
             let _ = child.kill();
             let _ = child.wait();
-            Err("ADB command timeout (>3s) - process killed".to_string())
+            Err(format!("ADB command timeout (>3s, {:.0}ms) - process killed", start.elapsed().as_millis()))
         }
     }
 }
